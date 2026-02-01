@@ -1,0 +1,29 @@
+{
+  "activityEntities" : [
+    "projectCreated",
+    [
+      {
+        "createdDate" : "2026-02-01T13:53:31Z",
+        "event" : "projectCreated",
+        "id" : "30255C71-0029-47E6-BA0E-2DC9B667C5CB",
+        "subtitle" : "MyHandPoseClassifier",
+        "title" : "Project Created"
+      }
+    ]
+  ],
+  "authorName" : "Raunick Vileforte",
+  "createdDate" : "2026-02-01T13:53:31Z",
+  "description" : "teste",
+  "id" : "F816590E-D26B-45F9-BA3F-A51226568C9B",
+  "license" : "",
+  "location" : "",
+  "modifiedDate" : "2026-02-01T13:53:31Z",
+  "projectName" : "MyHandPoseClassifier",
+  "settingsEntity" : {
+    "snapshotOnExtendTraining" : true,
+    "snapshotOnResumeTraining" : false
+  },
+  "taskType" : "handPoseClassifier",
+  "title" : "Hand Pose Classification",
+  "version" : "1.1"
+}

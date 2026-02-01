@@ -1,0 +1,125 @@
+{
+  "activityEntities" : [
+    "experimentCreated",
+    [
+      {
+        "createdDate" : "2026-02-01T13:53:32Z",
+        "event" : "experimentCreated",
+        "id" : "D8ABB56F-21BA-4989-AD97-CB503D31C966",
+        "subtitle" : "MyHandPoseClassifier 1",
+        "title" : "Model Source Created"
+      }
+    ]
+  ],
+  "contentDataResult" : {
+
+  },
+  "createdDate" : "2026-02-01T13:53:32Z",
+  "evaluationContainerEntity" : {
+    "createdDate" : "2026-02-01T13:53:32Z",
+    "evaluationEntities" : [
+
+    ],
+    "id" : "b7953f11-5604-45b2-9eac-a9fff52fce94",
+    "modifiedDate" : "2026-02-01T13:53:32Z",
+    "previewType" : "handPoseClassifier",
+    "testingEvaluationEntity" : {
+      "analysedDataType" : "none",
+      "createdDate" : "2026-02-01T13:53:32Z",
+      "dataResult" : {
+
+      },
+      "id" : "9670d66f-c1e0-40c7-a863-b712b2c8a5c3"
+    },
+    "trainingEvaluationEntity" : {
+      "analysedDataType" : "none",
+      "createdDate" : "2026-02-01T13:53:32Z",
+      "dataResult" : {
+
+      },
+      "id" : "215ab9f2-3873-4caa-804a-ffa823968b78"
+    },
+    "validationEvaluationEntity" : {
+      "analysedDataType" : "none",
+      "createdDate" : "2026-02-01T13:53:32Z",
+      "dataResult" : {
+
+      },
+      "id" : "53d75589-a83f-495a-b046-dedbc67cf563"
+    }
+  },
+  "evaluationEntity" : {
+    "analysedDataType" : "none",
+    "dataResult" : {
+
+    },
+    "id" : "a0fd1c8d-c13e-4c57-b88a-68d80126ef5c"
+  },
+  "evaluationState" : "uninitialized",
+  "id" : "78759153-871A-4438-B9A4-DBB57BA2CFDD",
+  "modelEntity" : {
+    "createdDate" : "2026-02-01T13:53:32Z",
+    "experimentID" : "78759153-871A-4438-B9A4-DBB57BA2CFDD",
+    "id" : "77A8C7D6-0FB9-43DB-85FF-90504988F2C8",
+    "modifiedDate" : "2026-02-01T13:53:32Z",
+    "title" : "",
+    "version" : "1.0"
+  },
+  "modifiedDate" : "2026-02-01T13:53:32Z",
+  "preferredFilename" : "MyHandPoseClassifier 1",
+  "settingEntity" : {
+    "algorithmType" : "maxEnt",
+    "augmentations" : [
+
+    ],
+    "featureNames" : [
+
+    ],
+    "handActionClassifierAugmentations" : [
+
+    ],
+    "handPoseClassifierAugmentations" : [
+
+    ],
+    "harVideoAugmentations" : 0,
+    "seedType" : "default",
+    "styleTransferAlgorithmType" : "image",
+    "taskType" : "handPoseClassifier",
+    "transferLearningEmbeddingType" : "dynamic"
+  },
+  "snapshotRole" : {
+    "withoutSnapshots" : 0
+  },
+  "state" : "uninitialized",
+  "title" : "MyHandPoseClassifier 1",
+  "trainingEntity" : {
+    "analysedDataType" : "choose",
+    "checkpointMetrics" : {
+
+    },
+    "dataResult" : {
+
+    },
+    "featureExtractionCheckpointMayBeAvailable" : false,
+    "progress" : [
+
+    ],
+    "snapshottableCheckpoints" : {
+
+    }
+  },
+  "validationEntity" : {
+    "analysedDataType" : "auto",
+    "dataResult" : {
+
+    },
+    "splitOptions" : {
+      "strategy" : {
+        "automatic" : {
+
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}
