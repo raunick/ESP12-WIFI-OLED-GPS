@@ -1,63 +1,59 @@
-# 🔌 ESP-01S: SMART SLAVE UNIT (v3.1)
+# 🔌 ESP-01S: SMART SLAVE UNIT (v3.3)
 
-> **Módulo Relé Inteligente** controlado remotamente pelo Master (ESP-12F) via ESP-NOW, com feedback via LED e Dashboard próprio.
+> **Módulo Relé Inteligente** controlado remotamente pelo Master (ESP-12F) via ESP-NOW, agora com suporte a múltiplos IDs e interface Cyber-Tech.
 
 ---
 
 ## 📋 Especificações do Sistema
 
 - **Função**: Slave / Receiver / Actuator
-- **Firmware**: v3.1 (Bidirecional)
+- **Firmware**: v3.3 (Multi-Slave & Cyber-Tech)
 - **Protocolo**: ESP-NOW + WiFi (Web Server)
-- **Output**: Relé 5V (GPIO 0) + LED (GPIO 2)
+- **Output**: Relé 5V (GPIO 0) + LED (GPIO 2) **Sincronizados**
+- **Identidade**: Possui um `SLAVE_ID` único (1 ou 2)
 
 ## 📍 Pinout & Hardware
 
 | Pino ESP | Função Hardware | Descrição |
 | :--- | :--- | :--- |
-| **GPIO 0** | **Relé** | Acionamento do Relé (Active Low/High variável) |
-| **GPIO 2** | **LED Builtin** | LED Azul bordo (Feedback Visual) |
-| **RX/TX** | **Serial** | Debug e Gravação (Requer adaptador USB) |
+| **GPIO 0** | **Relé** | Acionamento do Relé (Active Low - Relé V5.0) |
+| **GPIO 2** | **LED Builtin** | LED Azul (Sincronizado com o Relé) |
 
 ---
 
 ## 🎮 Funcionalidades
 
-O Slave hospeda um Web Server independente: **[http://esp-led.local](http://esp-led.local)**
+O Slave hospeda um Web Server acessível via: **[http://esp-01s-X.local](http://esp-01s-1.local)** (onde X é o ID).
 
-### 1. Comportamento do LED
-- **Conectando WiFi**: Pisca rápido (100ms) indicando busca de rede.
-- **Conectado / Standby**: Espelha o estado do Relé.
-    - **Relé ON** = LED ON.
-    - **Relé OFF** = LED OFF.
+### 1. Comportamento do LED & Relé
+- **Conectando WiFi**: LED azul pisca rápido (100ms).
+- **Conectado**: LED azul acende por 3s e apaga.
+- **Operação**: O LED azul da placa agora espelha **exatamente** o estado do relé.
+    - **Relé Ativo** = LED Azul Aceso.
+    - **Relé Inativo** = LED Azul Apagado.
 
-### 2. Dashboard Web
-Página de diagnóstico para verificar a saúde da conexão:
-- **Network Info**: Mostra IP Local, MAC Local e **MAC do Master** (se pareado).
-- **Status Link**: Mostra se recebeu comandos recentes do Master.
-- **Botão Teste**: Permite ligar/desligar o relé localmente para testar o hardware.
+### 2. Dashboard Web (Cyber-Tech)
+Nova interface moderna com estilo industrial:
+- **Tema**: Fundo escuro, fontes Roboto/Segoe e acentos em Neon Ciano.
+- **Relay Control**: Botão grande com feedback visual de estado.
+- **Telemetry**: Identificação clara do `ID` e do `MAC` do Master conectado.
 
-### 3. ESP-NOW (Bidirecional)
-- **Recebe**: Comandos de Toggle do Master.
-- **Envia**: Confirmação de novo estado (ON/OFF) de volta para atualizar o OLED do Master.
-
----
-
-## 🔧 Notas de Gravação (Upload)
-
-O ESP-01S é sensível e requer um adaptador USB-Serial específico.
-
-**Problema Comum**: `Device not configured` ou `Invalid Head of Packet`.
-**Solução**:
-1. Certifique-se que o pino GPIO0 está conectado ao GND durante o boot (Modo Flash).
-2. Se o upload falhar repetidamente, **desplugue e plugue** o adaptador USB para resetar a porta Serial do Mac.
-3. Velocidade de upload configurada para `115200` para maior estabilidade.
+### 3. ESP-NOW Targeted (Independente)
+- **Filtro de ID**: O dispositivo agora só reage se o `targetID` enviado pelo Master for igual ao seu `SLAVE_ID`.
+- **Feedback**: Envia seu próprio ID no pacote de status para o Master saber qual placa está respondendo.
 
 ---
+
+## 🔧 Configuração de Múltiplos Dispositivos
+
+Para usar mais de um relé, edite o código antes de gravar:
+```cpp
+#define SLAVE_ID 1 // Mude para 2, 3, etc. para outras placas
+```
 
 ## 🚀 Como Iniciar
 
-1. Ligue o ESP-01S na base do Relé (ou fonte 3.3V).
-2. O LED azul piscará até conectar no WiFi "RAUL".
-3. Uma vez fixo (ou apagado), está pronto.
-4. Ao receber comando do Master, você ouvirá o "click" do relé.
+1. Grave o firmware com o ID desejado.
+2. O Master automaticamente detectará a resposta do Slave no Dashboard.
+3. Teste o acionamento independente pelo console do ESP-12F.
+

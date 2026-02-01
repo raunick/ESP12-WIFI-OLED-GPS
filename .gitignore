@@ -1,0 +1,54 @@
+# =============================================================================
+# GITIGNORE - ESP-NOW Multi-Slave Relay System
+# =============================================================================
+
+# =============== PlatformIO Build Artifacts ===============
+.pio/
+.pioenvs/
+.piolibdeps/
+
+# =============== System Files ===============
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+*.swp
+*~
+
+# =============== IDE & Editor Settings ===============
+.vscode/
+.idea/
+*.sublime-project
+*.sublime-workspace
+*.ino.cpp
+
+# =============== Python ===============
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+env/
+venv/
+.env
+*.egg-info/
+get-platformio.py
+
+# =============== Agent & AI Files ===============
+.agent/
+
+# =============== Logs & Temp Files ===============
+*.log
+*.tmp
+*.temp
+temp/
+logs/
+
+# =============== Compiled Binaries ===============
+*.bin
+*.elf
+*.hex
+*.map

@@ -15,39 +15,26 @@ Esta placa é uma plataforma completa para desenvolvimento IoT, integrando conec
 
 | Componente | Pino ESP (GPIO) | Função | Observação |
 | :--- | :--- | :--- | :--- |
-| **LED Status** | GPIO4 | Saída | LED D1 (Verde/Azul) |
-| **OLED SDA** | GPIO2 | I2C | Pino de dados do Display |
-| **OLED SCL** | GPIO14 | I2C | Pino de clock do Display |
-| **DHT11** | GPIO12 | Entrada | Sensor de Temp/Umidade |
-| **Botão Flash** | GPIO0 | Entrada | Usado para modo de gravação / Input |
+| **LED Status (Board)** | GPIO 4 | Saída | LED Azul (Active Low) |
+| **OLED SDA** | GPIO 2 | I2C | Pino de dados do Display |
+| **OLED SCL** | GPIO 14 | I2C | Pino de clock do Display |
+| **LED Status (Node)** | GPIO 16 | Saída | LED Vermelho |
+| **GPS RX**  | GPIO 12 | Serial Software | Leitura NMEA do Módulo GPS |
+| **GPS TX**  | GPIO 13 | Serial Software | Envio de comandos p/ GPS |
+| **Botão Flash** | GPIO 0 | Entrada | Usado para modo de gravação |
 | **Botão Reset** | RST | Entrada | Reinicia o módulo |
-| **UART TX** | TXD0 (GPIO1) | Serial | Transmissão de dados (Debug) |
-| **UART RX** | RXD0 (GPIO3) | Serial | Recepção de dados (Debug) |
-| **GPS RX**  | GPIO12 | Serial Software | Leitura NMEA do Módulo GPS |
-| **GPS TX**  | GPIO13 | Serial Software | Envio de comandos p/ GPS |
 
-## 🛠 Configuração PlatformIO (`platformio.ini`)
+## 🛠 Configuração de Software (v3.3 Cyber Edition)
 
-Para usar esta placa no PlatformIO, utilize a seguinte base:
-
-```ini
-[env:nodemcuv2]
-platform = espressif8266
-board = nodemcuv2
-framework = arduino
-monitor_speed = 115200
-lib_deps = 
-	adafruit/Adafruit SSD1306 @ ^2.5.7
-	adafruit/Adafruit GFX Library @ ^1.11.5
-	adafruit/DHT sensor library @ ^1.4.4
-	mikalhart/TinyGPSPlus @ ^1.0.3
-```
+- **Firmware Base**: Cyber-Master v3.3
+- **mDNS**: `esp-12f.local`
+- **Interface**: Dashboard Glassmorphism & OLED HUD Layout.
 
 ## 📝 Notas de Hardware
 
 1.  **I2C do Display**: O display OLED utiliza o endereço I2C `0x3C`.
-2.  **Lógica do LED**: O LED de status no pino GPIO4 é **Active Low** (LOW=ON, HIGH=OFF).
-3.  **DHT11 vs GPS**: O pino GPIO12, originalmente mapeado para DHT11, agora é utilizado para **GPS RX**. Se usar GPS, remova o DHT11 ou remapeie.
+2.  **Lógica do LED**: O LED azul no pino GPIO 4 é **Active Low** (LOW=ON, HIGH=OFF).
+3.  **GPS vs DHT11**: O pino GPIO 12 é agora dedicado ao **GPS RX**. O DHT11 original (mapeado para GPIO 12) foi desativado no firmware v3.3 para permitir o rastreamento via satélite.
 
 ---
 *Documentação gerada com base nos arquivos esquemáticos fornecidos.*
