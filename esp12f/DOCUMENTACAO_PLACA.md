@@ -21,8 +21,10 @@ Esta placa é uma plataforma completa para desenvolvimento IoT, integrando conec
 | **DHT11** | GPIO12 | Entrada | Sensor de Temp/Umidade |
 | **Botão Flash** | GPIO0 | Entrada | Usado para modo de gravação / Input |
 | **Botão Reset** | RST | Entrada | Reinicia o módulo |
-| **UART TX** | TXD0 (GPIO1) | Serial | Transmissão de dados |
-| **UART RX** | RXD0 (GPIO3) | Serial | Recepção de dados |
+| **UART TX** | TXD0 (GPIO1) | Serial | Transmissão de dados (Debug) |
+| **UART RX** | RXD0 (GPIO3) | Serial | Recepção de dados (Debug) |
+| **GPS RX**  | GPIO12 | Serial Software | Leitura NMEA do Módulo GPS |
+| **GPS TX**  | GPIO13 | Serial Software | Envio de comandos p/ GPS |
 
 ## 🛠 Configuração PlatformIO (`platformio.ini`)
 
@@ -38,13 +40,14 @@ lib_deps =
 	adafruit/Adafruit SSD1306 @ ^2.5.7
 	adafruit/Adafruit GFX Library @ ^1.11.5
 	adafruit/DHT sensor library @ ^1.4.4
+	mikalhart/TinyGPSPlus @ ^1.0.3
 ```
 
 ## 📝 Notas de Hardware
 
 1.  **I2C do Display**: O display OLED utiliza o endereço I2C `0x3C`.
-2.  **Lógica do LED**: O LED de status no pino GPIO4 costuma ser acionado em nível **LOW** (lógica invertida), dependendo da revisão da placa.
-3.  **DHT11**: No esquema fornecido, o DHT11 está conectado à **Interface de Módulo (P9)** que mapeia para o **GPIO12**.
+2.  **Lógica do LED**: O LED de status no pino GPIO4 é **Active Low** (LOW=ON, HIGH=OFF).
+3.  **DHT11 vs GPS**: O pino GPIO12, originalmente mapeado para DHT11, agora é utilizado para **GPS RX**. Se usar GPS, remova o DHT11 ou remapeie.
 
 ---
 *Documentação gerada com base nos arquivos esquemáticos fornecidos.*

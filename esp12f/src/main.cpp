@@ -4,6 +4,8 @@
 #include <ESP8266WebServer.h>
 #include <ESP8266WiFi.h>
 #include <ESP8266mDNS.h>
+#include <SoftwareSerial.h>
+#include <TinyGPS++.h>
 #include <Wire.h>
 #include <espnow.h>
 
@@ -25,12 +27,17 @@ const char *password = "24681357";
 #define OLED_SCL 14
 #define LED_NODE_PIN 16
 #define LED_BOARD_PIN 4
+#define GPS_RX_PIN 12 // Connect to GPS TX
+#define GPS_TX_PIN 13 // Connect to GPS RX
+#define GPS_BAUD 9600
 #define SCREEN_ADDRESS 0x3C
 
 uint8_t broadcastAddress[] = {0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF};
 
 Adafruit_SSD1306 display(128, 64, &Wire, -1);
 ESP8266WebServer server(80);
+TinyGPSPlus gps;
+SoftwareSerial gpsSerial(GPS_RX_PIN, GPS_TX_PIN);
 
 // State
 bool stateNode = false;
@@ -89,6 +96,19 @@ void updateOLED() {
     display.print(" [OFF] ");
   }
 
+  // GPS Section
+  display.setCursor(64, 32);
+  display.print("GPS:");
+  if (gps.location.isValid()) {
+    display.setCursor(64, 42);
+    display.print(gps.location.lat(), 2);
+    display.setCursor(64, 52);
+    display.print(gps.location.lng(), 2);
+  } else {
+    display.setCursor(64, 42);
+    display.print("NO FIX");
+  }
+
   display.display();
 }
 
@@ -139,17 +159,32 @@ void handleRoot() {
   html += "<a href='/remoteToggle'><button class='btn danger'>" + remoteText +
           "</button></a>";
 
+  html += "<hr style='border:1px dashed #0f0'>";
+  html += "<p>> GPS STATUS</p>";
+  if (gps.location.isValid()) {
+    html += "<p>LAT: " + String(gps.location.lat(), 6) + "</p>";
+    html += "<p>LNG: " + String(gps.location.lng(), 6) + "</p>";
+    html += "<p>SATS: " + String(gps.satellites.value()) + "</p>";
+    html +=
+        "<a href='https://maps.google.com/?q=" + String(gps.location.lat(), 6) +
+        "," + String(gps.location.lng(), 6) +
+        "' target='_blank'><button class='btn'>VIEW ON MAP</button></a>";
+  } else {
+    html += "<p>SEARCHING FOR SATELLITES...</p>";
+  }
+
   html += "</div></body></html>";
   server.send(200, "text/html", html);
 }
 
 void setup() {
   Serial.begin(115200);
+  gpsSerial.begin(GPS_BAUD);
 
   pinMode(LED_NODE_PIN, OUTPUT);
   pinMode(LED_BOARD_PIN, OUTPUT);
   digitalWrite(LED_NODE_PIN, LOW);
-  digitalWrite(LED_BOARD_PIN, LOW);
+  digitalWrite(LED_BOARD_PIN, HIGH);
 
   Wire.begin(OLED_SDA, OLED_SCL);
   if (display.begin(SSD1306_SWITCHCAPVCC, SCREEN_ADDRESS)) {
@@ -180,7 +215,7 @@ void setup() {
   });
   server.on("/t4", []() {
     stateBoard = !stateBoard;
-    digitalWrite(LED_BOARD_PIN, stateBoard ? HIGH : LOW);
+    digitalWrite(LED_BOARD_PIN, stateBoard ? LOW : HIGH);
     server.sendHeader("Location", "/");
     server.send(303);
     oledNeedsUpdate = true;
@@ -198,6 +233,13 @@ void setup() {
 void loop() {
   server.handleClient();
   MDNS.update();
+
+  // 0. Feed GPS
+  while (gpsSerial.available() > 0) {
+    if (gps.encode(gpsSerial.read())) {
+      oledNeedsUpdate = true;
+    }
+  }
 
   // 1. Process Remote Command
   if (shouldSendRemote) {
