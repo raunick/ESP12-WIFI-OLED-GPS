@@ -1,0 +1,123 @@
+# ============================================================
+# RoboEyes Animation — Exemplo Completo
+# ============================================================
+# Este arquivo demonstra todas as features do Animation Engine:
+# - Múltiplas animações
+# - Diferentes easings
+# - Várias primitivas
+# - Inversão global
+# - Limite de memória configurável
+# ============================================================
+
+# Canvas = resolução do display OLED
+canvas:
+  width: 128
+  height: 64
+
+# Frames por segundo (12 = bom balanço para OLED)
+fps: 12
+
+# Limite de memória em KB
+# Arduino Uno: 32 | Mega: 256 | ESP32: 512
+memory_limit: 512
+
+# Inverter cores (fundo branco, objetos pretos)
+invert_global: false
+
+# ============================================================
+# ANIMAÇÕES
+# ============================================================
+animations:
+
+  # --- Bola quicando com ease_out ---
+  - name: bounce_ball
+    duration: 1.5
+    objects:
+      - type: circle
+        easing: ease_out
+        keyframes:
+          - { t: 0.0, x: 20, y: 5, r: 6 }
+          - { t: 0.4, x: 64, y: 52, r: 10 }
+          - { t: 0.7, x: 64, y: 30, r: 8 }
+          - { t: 1.0, x: 64, y: 52, r: 10 }
+
+      # Sombra da bola (acompanha horizontalmente)
+      - type: ellipse
+        easing: ease_out
+        keyframes:
+          - { t: 0.0, x: 20, y: 60, rx: 4, ry: 2 }
+          - { t: 0.4, x: 64, y: 60, rx: 10, ry: 3 }
+          - { t: 1.0, x: 64, y: 60, rx: 8, ry: 2 }
+
+  # --- Olho piscando com ease_in_out ---
+  - name: eye_blink
+    duration: 0.8
+    objects:
+      # Olho esquerdo
+      - type: ellipse
+        easing: ease_in_out
+        keyframes:
+          - { t: 0.0, x: 40, y: 32, rx: 16, ry: 18 }
+          - { t: 0.4, x: 40, y: 32, rx: 16, ry: 2 }
+          - { t: 1.0, x: 40, y: 32, rx: 16, ry: 18 }
+
+      # Olho direito
+      - type: ellipse
+        easing: ease_in_out
+        keyframes:
+          - { t: 0.0, x: 88, y: 32, rx: 16, ry: 18 }
+          - { t: 0.4, x: 88, y: 32, rx: 16, ry: 2 }
+          - { t: 1.0, x: 88, y: 32, rx: 16, ry: 18 }
+
+  # --- Coração batendo (love) ---
+  - name: heart_beat
+    duration: 1.2
+    objects:
+      # Coração feito com dois círculos + triângulo (simplificado)
+      - type: circle
+        easing: ease_in_out
+        keyframes:
+          - { t: 0.0, x: 54, y: 24, r: 10 }
+          - { t: 0.3, x: 54, y: 22, r: 14 }
+          - { t: 0.6, x: 54, y: 24, r: 10 }
+          - { t: 1.0, x: 54, y: 24, r: 10 }
+
+      - type: circle
+        easing: ease_in_out
+        keyframes:
+          - { t: 0.0, x: 74, y: 24, r: 10 }
+          - { t: 0.3, x: 74, y: 22, r: 14 }
+          - { t: 0.6, x: 74, y: 24, r: 10 }
+          - { t: 1.0, x: 74, y: 24, r: 10 }
+
+      # Triângulo base (rect simplificado)
+      - type: rect
+        easing: ease_in_out
+        keyframes:
+          - { t: 0.0, x: 49, y: 28, w: 30, h: 20 }
+          - { t: 0.3, x: 45, y: 26, w: 38, h: 26 }
+          - { t: 0.6, x: 49, y: 28, w: 30, h: 20 }
+          - { t: 1.0, x: 49, y: 28, w: 30, h: 20 }
+
+  # --- Loading spinner ---
+  - name: loading_spin
+    duration: 2.0
+    objects:
+      - type: circle
+        easing: ease_in_out_cubic
+        keyframes:
+          - { t: 0.0, x: 64, y: 32, r: 4 }
+          - { t: 0.25, x: 84, y: 32, r: 6 }
+          - { t: 0.5, x: 64, y: 32, r: 4 }
+          - { t: 0.75, x: 44, y: 32, r: 6 }
+          - { t: 1.0, x: 64, y: 32, r: 4 }
+
+      # Ponto menor (oposto)
+      - type: circle
+        easing: ease_in_out_cubic
+        keyframes:
+          - { t: 0.0, x: 64, y: 32, r: 3 }
+          - { t: 0.25, x: 44, y: 32, r: 2 }
+          - { t: 0.5, x: 64, y: 32, r: 3 }
+          - { t: 0.75, x: 84, y: 32, r: 2 }
+          - { t: 1.0, x: 64, y: 32, r: 3 }

@@ -6,7 +6,7 @@ const char DASHBOARD_HTML[] PROGMEM = R"rawliteral(
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>RoboEyes Dashboard v5.0</title>
+<title>RoboEyes Dashboard v5.1</title>
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
 body{font-family:'Segoe UI',system-ui,sans-serif;background:#0a0a0f;color:#e0e0e0;min-height:100vh;padding:16px}
@@ -65,11 +65,13 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:18px;heigh
 .splash-btn:hover{border-color:rgba(0,212,255,.3);color:#fff}
 .splash-btn.active{border-color:#00d4ff;background:rgba(0,212,255,.12);color:#00d4ff}
 .touch-val{font-size:1.8rem;font-weight:700;text-align:center;color:#7b2fff;margin:8px 0}
+.mem-bar{height:6px;border-radius:3px;background:#222;margin-top:4px;overflow:hidden}
+.mem-fill{height:100%;border-radius:3px;background:linear-gradient(90deg,#51cf66,#00d4ff);transition:width .5s}
 </style>
 </head>
 <body>
 <h1>🤖 RoboEyes Dashboard</h1>
-<p class="subtitle">ESP32-WROOM • v5.0 <span class="mode-badge mode-eyes" id="mode-badge">OLHOS</span></p>
+<p class="subtitle">ESP32-WROOM • v5.1 <span class="mode-badge mode-eyes" id="mode-badge">OLHOS</span></p>
 
 <div class="info-bar">
   <div class="item">📡 WiFi: RoboEyes</div>
@@ -107,6 +109,10 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:18px;heigh
       <span class="sensor-label">👆 Touch (GPIO15)</span>
       <span class="sensor-value" id="touchval" style="color:#ff922b">--</span>
     </div>
+    <div class="sensor-row">
+      <span class="sensor-label">💾 Heap Livre</span>
+      <span class="sensor-value" id="heap" style="color:#51cf66;font-size:1rem">-- KB</span>
+    </div>
   </div>
 
   <!-- TOGGLES -->
@@ -122,6 +128,7 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:18px;heigh
     <div class="toggle-row"><span class="toggle-name">🧐 Curiosity</span><label class="switch"><input type="checkbox" id="t-curiosity" onchange="toggle('curiosity',this.checked)"><span class="slider"></span></label></div>
     <div class="toggle-row" style="border-top:1px solid rgba(123,47,255,.2);padding-top:12px"><span class="toggle-name">🎭 Auto Expressões</span><label class="switch"><input type="checkbox" id="t-autoExpr" onchange="toggle('autoExpr',this.checked)"><span class="slider"></span></label></div>
     <div class="toggle-row"><span class="toggle-name">👆 Touch Sensor</span><label class="switch"><input type="checkbox" id="t-touch" onchange="toggle('touch',this.checked)"><span class="slider"></span></label></div>
+    <div class="toggle-row" style="border-top:1px solid rgba(255,255,255,.1);padding-top:12px"><span class="toggle-name">🔲 Inversão OLED</span><label class="switch"><input type="checkbox" id="t-invert" onchange="toggle('invert',this.checked)"><span class="slider"></span></label></div>
     <button class="menu-btn" onclick="showOledMenu()">📺 Mostrar Info no OLED</button>
   </div>
 
@@ -181,7 +188,7 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:18px;heigh
 
 </div>
 
-<p class="footer">RoboEyes Enhanced v5.0 • Touch + Mochi</p>
+<p class="footer">RoboEyes Enhanced v5.1 • Touch + Mochi + NVS</p>
 
 <script>
 const API='';
@@ -210,6 +217,8 @@ async function fetchStatus(){
     document.getElementById('t-curiosity').checked=d.t.curiosity;
     document.getElementById('t-autoExpr').checked=d.t.autoExpr;
     document.getElementById('t-touch').checked=d.t.touch;
+    document.getElementById('t-invert').checked=d.t.invert;
+    if(d.heap) document.getElementById('heap').textContent=(d.heap/1024).toFixed(1)+' KB';
     const badge=document.getElementById('mode-badge');
     if(d.mode===0){badge.textContent='OLHOS';badge.className='mode-badge mode-eyes';}
     else if(d.mode===1){badge.textContent='MENU';badge.className='mode-badge mode-menu';}

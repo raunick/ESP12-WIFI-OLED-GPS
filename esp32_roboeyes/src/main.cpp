@@ -1,7 +1,7 @@
 // ============================================================
-// ESP32 RoboEyes Enhanced v5.0 - Touch + Mochi Features
+// ESP32 RoboEyes Enhanced v5.1 - Persistent Settings
 // ============================================================
-// Touch Sensor, Random Animations, Clock, Melodies, Splash
+// Touch, Animations, Clock, Melodies, Splash, NVS Storage
 // ============================================================
 
 #include <Adafruit_GFX.h>
@@ -9,6 +9,7 @@
 #include <Adafruit_SSD1306.h>
 #include <ArduinoJson.h>
 #include <ESPAsyncWebServer.h>
+#include <Preferences.h>
 #include <WiFi.h>
 #include <Wire.h>
 
@@ -58,6 +59,7 @@ Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
 RoboEyes<Adafruit_SSD1306> roboEyes(display);
 Adafruit_HTU21DF htu = Adafruit_HTU21DF();
 AsyncWebServer server(80);
+Preferences prefs;
 
 // ==========================================
 // ESTADO DOS SENSORES
@@ -82,8 +84,9 @@ struct Features {
   bool idle = false;
   bool sweat = false;
   bool curiosity = true;
-  bool autoExpressions = true; // Random expressions timer
-  bool touchEnabled = true;    // Touch sensor
+  bool autoExpressions = true;
+  bool touchEnabled = true;
+  bool invertDisplay = false; // OLED color inversion
 } features;
 
 // ==========================================
@@ -91,6 +94,9 @@ struct Features {
 // ==========================================
 float eyeThreshold = 0.3;
 float shakeThreshold = 1.5;
+
+// Eye shape settings (persistable)
+int eyeW = 36, eyeH = 36, eyeR = 8, eyeS = 10;
 
 // ==========================================
 // DISPLAY MODE
@@ -114,6 +120,8 @@ int animType = 0;
 // ==========================================
 void startAnimation(int type);
 void showMenu();
+void saveSettings();
+void loadSettings();
 
 // ==========================================
 // TOUCH SENSOR STATE
@@ -154,6 +162,85 @@ const long sensorInterval = 1000;
 unsigned long lastMoodUpdate = 0;
 const long moodInterval = 5000;
 unsigned long lastClockTick = 0;
+
+// ==========================================
+// NVS — Persistent Settings
+// ==========================================
+void saveSettings() {
+  prefs.begin("roboeyes", false);
+  // Toggles
+  prefs.putBool("tracking", features.tracking);
+  prefs.putBool("automood", features.automood);
+  prefs.putBool("buzzer", features.buzzer);
+  prefs.putBool("led", features.led);
+  prefs.putBool("blinker", features.blinker);
+  prefs.putBool("idle", features.idle);
+  prefs.putBool("sweat", features.sweat);
+  prefs.putBool("curiosity", features.curiosity);
+  prefs.putBool("autoExpr", features.autoExpressions);
+  prefs.putBool("touch", features.touchEnabled);
+  prefs.putBool("invert", features.invertDisplay);
+  // Calibration
+  prefs.putFloat("eyeTh", eyeThreshold);
+  prefs.putFloat("shakeTh", shakeThreshold);
+  // Eye shape
+  prefs.putInt("eyeW", eyeW);
+  prefs.putInt("eyeH", eyeH);
+  prefs.putInt("eyeR", eyeR);
+  prefs.putInt("eyeS", eyeS);
+  // Splash
+  prefs.putInt("splash", splashTheme);
+  prefs.end();
+  Serial.println("[NVS] Salvo!");
+}
+
+void loadSettings() {
+  prefs.begin("roboeyes", true); // read-only
+  // Toggles
+  features.tracking = prefs.getBool("tracking", true);
+  features.automood = prefs.getBool("automood", true);
+  features.buzzer = prefs.getBool("buzzer", true);
+  features.led = prefs.getBool("led", true);
+  features.blinker = prefs.getBool("blinker", true);
+  features.idle = prefs.getBool("idle", false);
+  features.sweat = prefs.getBool("sweat", false);
+  features.curiosity = prefs.getBool("curiosity", true);
+  features.autoExpressions = prefs.getBool("autoExpr", true);
+  features.touchEnabled = prefs.getBool("touch", true);
+  features.invertDisplay = prefs.getBool("invert", false);
+  // Calibration
+  eyeThreshold = prefs.getFloat("eyeTh", 0.3);
+  shakeThreshold = prefs.getFloat("shakeTh", 1.5);
+  // Eye shape
+  eyeW = prefs.getInt("eyeW", 36);
+  eyeH = prefs.getInt("eyeH", 36);
+  eyeR = prefs.getInt("eyeR", 8);
+  eyeS = prefs.getInt("eyeS", 10);
+  // Splash
+  splashTheme = prefs.getInt("splash", 0);
+  prefs.end();
+  Serial.println("[NVS] Configurações carregadas!");
+}
+
+// ==========================================
+// MEMORY REPORTER
+// ==========================================
+void reportMemory() {
+  uint32_t freeHeap = ESP.getFreeHeap();
+  uint32_t sketchSize = ESP.getSketchSize();
+  uint32_t freeSketch = ESP.getFreeSketchSpace();
+  uint32_t totalSketch = sketchSize + freeSketch;
+  Serial.println("\n[MEM] ═══════════════════════════");
+  Serial.printf("[MEM] Heap livre: %u bytes (%.1f KB)\n", freeHeap,
+                freeHeap / 1024.0);
+  Serial.printf("[MEM] Flash: %u/%u KB (%.0f%%)\n", sketchSize / 1024,
+                totalSketch / 1024, (sketchSize * 100.0) / totalSketch);
+  if (freeHeap < 32768)
+    Serial.println("[MEM] ⚠️  Heap abaixo de 32KB!");
+  else
+    Serial.println("[MEM] ✅ Memória OK");
+  Serial.println("[MEM] ═══════════════════════════");
+}
 
 // ==========================================
 // BMI160 I2C
@@ -818,10 +905,10 @@ void startAnimation(int type) {
 void restoreEyes() {
   animRunning = false;
   displayMode = MODE_EYES;
-  roboEyes.setWidth(36, 36);
-  roboEyes.setHeight(36, 36);
-  roboEyes.setBorderradius(8, 8);
-  roboEyes.setSpacebetween(10);
+  roboEyes.setWidth(eyeW, eyeW);
+  roboEyes.setHeight(eyeH, eyeH);
+  roboEyes.setBorderradius(eyeR, eyeR);
+  roboEyes.setSpacebetween(eyeS);
   roboEyes.setMood(currentMood);
   setMoodColor(currentMood);
 }
@@ -860,7 +947,6 @@ void updateAnimSuspicious() {
   unsigned long e = millis() - animStartTime;
   if (e > 3000) {
     restoreEyes();
-    roboEyes.setHeight(36, 36);
     return;
   }
   setLedColor(255, 165, 0);
@@ -965,6 +1051,9 @@ void setupWebServer() {
       doc["cm"] = clockData.m;
       doc["cs"] = clockData.s;
     }
+    // Memory info
+    doc["heap"] = ESP.getFreeHeap();
+    doc["flash"] = ESP.getSketchSize();
     JsonObject t = doc["t"].to<JsonObject>();
     t["tracking"] = features.tracking;
     t["automood"] = features.automood;
@@ -976,6 +1065,7 @@ void setupWebServer() {
     t["curiosity"] = features.curiosity;
     t["autoExpr"] = features.autoExpressions;
     t["touch"] = features.touchEnabled;
+    t["invert"] = features.invertDisplay;
     String json;
     serializeJson(doc, json);
     r->send(200, "application/json", json);
@@ -1022,7 +1112,12 @@ void setupWebServer() {
           features.autoExpressions = s;
         else if (f == "touch")
           features.touchEnabled = s;
+        else if (f == "invert") {
+          features.invertDisplay = s;
+          display.invertDisplay(s);
+        }
         Serial.printf("[TOGGLE] %s=%s\n", f.c_str(), s ? "ON" : "OFF");
+        saveSettings();
         r->send(200, "application/json", "{\"ok\":true}");
       });
 
@@ -1103,6 +1198,7 @@ void setupWebServer() {
           eyeThreshold = doc["threshold"];
         if (doc["shakeThreshold"])
           shakeThreshold = doc["shakeThreshold"];
+        saveSettings();
         r->send(200, "application/json", "{\"ok\":true}");
       });
 
@@ -1115,14 +1211,23 @@ void setupWebServer() {
           r->send(400);
           return;
         }
-        if (doc["w"])
-          roboEyes.setWidth(doc["w"], doc["w"]);
-        if (doc["h"])
-          roboEyes.setHeight(doc["h"], doc["h"]);
-        if (doc["r"])
-          roboEyes.setBorderradius(doc["r"], doc["r"]);
-        if (doc["s"].is<int>())
-          roboEyes.setSpacebetween(doc["s"]);
+        if (doc["w"]) {
+          eyeW = doc["w"];
+          roboEyes.setWidth(eyeW, eyeW);
+        }
+        if (doc["h"]) {
+          eyeH = doc["h"];
+          roboEyes.setHeight(eyeH, eyeH);
+        }
+        if (doc["r"]) {
+          eyeR = doc["r"];
+          roboEyes.setBorderradius(eyeR, eyeR);
+        }
+        if (doc["s"].is<int>()) {
+          eyeS = doc["s"];
+          roboEyes.setSpacebetween(eyeS);
+        }
+        saveSettings();
         r->send(200, "application/json", "{\"ok\":true}");
       });
 
@@ -1180,6 +1285,7 @@ void setupWebServer() {
         }
         splashTheme = doc["theme"] | 0;
         Serial.printf("[SPLASH] Tema %d\n", splashTheme);
+        saveSettings();
         r->send(200, "application/json", "{\"ok\":true}");
       });
 
@@ -1192,7 +1298,10 @@ void setupWebServer() {
 // ==========================================
 void setup() {
   Serial.begin(115200);
-  Serial.println("\n=== RoboEyes Enhanced v5.0 ===");
+  Serial.println("\n=== RoboEyes Enhanced v5.1 ===");
+
+  // Carregar configurações salvas da NVS
+  loadSettings();
 
   pinMode(BUZZER_PIN, OUTPUT);
   pinMode(LED_R, OUTPUT);
@@ -1224,17 +1333,30 @@ void setup() {
   Serial.printf("[OK] Touch (GPIO%d) val=%d\n", TOUCH_PIN,
                 touchRead(TOUCH_PIN));
 
-  // RoboEyes
+  // RoboEyes — aplica shape salvo
   roboEyes.begin(SCREEN_WIDTH, SCREEN_HEIGHT, 100);
+  roboEyes.setWidth(eyeW, eyeW);
+  roboEyes.setHeight(eyeH, eyeH);
+  roboEyes.setBorderradius(eyeR, eyeR);
+  roboEyes.setSpacebetween(eyeS);
   roboEyes.setMood(HAPPY);
   setMoodColor(HAPPY);
+
   if (!bmi160Ok) {
     features.tracking = false;
     roboEyes.setIdleMode(ON, 2, 2);
     features.idle = true;
   }
-  roboEyes.setAutoblinker(ON, 3, 2);
-  roboEyes.setCuriosity(ON);
+  // Aplica toggles salvos
+  roboEyes.setAutoblinker(features.blinker ? ON : OFF, 3, 2);
+  roboEyes.setCuriosity(features.curiosity ? ON : OFF);
+  roboEyes.setIdleMode(features.idle ? ON : OFF, 2, 2);
+  roboEyes.setSweat(features.sweat ? ON : OFF);
+  if (!features.led) {
+    analogWrite(LED_R, 0);
+    analogWrite(LED_G, 0);
+    analogWrite(LED_B, 0);
+  }
 
   setupWebServer();
 
@@ -1247,7 +1369,13 @@ void setup() {
                 htuOk ? "SIM" : "NAO");
   Serial.printf("[WIFI] '%s' senha '%s'\n", AP_SSID, AP_PASS);
   Serial.println("[WEB] http://192.168.4.1");
-  Serial.println("[TOUCH] GPIO15 ativo\n");
+  Serial.println("[TOUCH] GPIO15 ativo");
+
+  // Aplica inversão salva
+  display.invertDisplay(features.invertDisplay);
+
+  // Relatório de memória
+  reportMemory();
 
   lastRandomAnim = millis();
   randomSeed(analogRead(36));
