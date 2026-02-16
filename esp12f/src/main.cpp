@@ -3,9 +3,14 @@
 #include <Adafruit_SSD1306.h>
 #include <Arduino.h>
 #include <DHT.h>
+#include <EEPROM.h>
+#include <ESP8266WebServer.h>
+#include <ESP8266WiFi.h>
 #include <SoftwareSerial.h>
 #include <TinyGPSPlus.h>
 #include <Wire.h>
+
+ADC_MODE(ADC_VCC);
 
 #define SCREEN_WIDTH 128
 #define SCREEN_HEIGHT 64
@@ -14,28 +19,148 @@
 #define OLED_SDA 2
 #define OLED_SCL 14
 
-// GPS Pins (D6 = GPIO12, D7 = GPIO13)
 #define GPS_RX 12
 #define GPS_TX 13
-
-// DHT Sensor Pin (GPIO05 = D1)
 #define DHTPIN 5
 #define DHTTYPE DHT11
+
+#define EEPROM_SIZE 96
+#define SSID_ADDR 0
+#define PASS_ADDR 32
+#define SSID_MAX 32
+#define PASS_MAX 64
 
 Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
 SoftwareSerial gpsSerial(GPS_RX, GPS_TX);
 TinyGPSPlus gps;
 DHT dht(DHTPIN, DHTTYPE);
+ESP8266WebServer server(80);
+
+// Face States
+enum FaceState {
+  FACE_NORMAL,
+  FACE_HAPPY,
+  FACE_SLEEPY,
+  FACE_SURPRISED,
+  FACE_LOOK
+};
+FaceState currentFace = FACE_NORMAL;
+unsigned long faceStateStart = 0;
 
 // UI Variables
 String ui_time = "00:00:00";
+String ui_date = "00/00/00";
+
 String ui_temp = "--";
 String ui_hum = "--";
 String ui_lat = "-0.00";
 String ui_lon = "-0.00";
 bool hasGPSFix = false;
+int batteryLevel = 3;
+int gpsBars = 0;
+float lastTemp = 0;
+unsigned long lastTempChange = 0;
+unsigned long noFixSince = 0;
+int lookPhase = 0;
+
+// WiFi & Icon State
+bool wifiConnected = false;
+bool apMode = false;
+bool battBlinkState = true;
+bool iconBlinkState = true;
+unsigned long lastBattBlink = 0;
+unsigned long lastIconBlink = 0;
+bool showDate = false;
+unsigned long lastDateToggle = 0;
+
+// EEPROM Helpers
+String readEEPROM(int addr, int maxLen) {
+  String val = "";
+  for (int i = 0; i < maxLen; i++) {
+    char c = EEPROM.read(addr + i);
+    if (c == 0 || c == 255)
+      break;
+    val += c;
+  }
+  return val;
+}
+
+void writeEEPROM(int addr, String data, int maxLen) {
+  for (int i = 0; i < maxLen; i++) {
+    EEPROM.write(addr + i, i < (int)data.length() ? data[i] : 0);
+  }
+  EEPROM.commit();
+}
+
+// Captive Portal HTML
+const char PORTAL_HTML[] PROGMEM = R"rawliteral(
+<!DOCTYPE html><html><head><meta name='viewport' content='width=device-width,initial-scale=1'>
+<style>body{font-family:sans-serif;background:#1a1a2e;color:#eee;display:flex;justify-content:center;align-items:center;height:100vh;margin:0}
+.card{background:#16213e;padding:30px;border-radius:12px;width:280px;box-shadow:0 8px 32px rgba(0,0,0,.5)}
+h2{margin:0 0 20px;text-align:center;color:#0ff}
+input{width:100%;padding:10px;margin:8px 0;border:1px solid #333;border-radius:6px;background:#0f3460;color:#eee;box-sizing:border-box}
+button{width:100%;padding:12px;margin-top:12px;border:none;border-radius:6px;background:#e94560;color:#fff;font-size:16px;cursor:pointer}
+button:hover{background:#ff6b6b}</style></head>
+<body><div class='card'><h2>ESP12F WiFi</h2>
+<form action='/save' method='POST'>
+<input name='ssid' placeholder='SSID' required>
+<input name='pass' type='password' placeholder='Senha' required>
+<button type='submit'>Conectar</button></form></div></body></html>)rawliteral";
+
+// WiFi Setup
+void setupWiFi() {
+  EEPROM.begin(EEPROM_SIZE);
+  String ssid = readEEPROM(SSID_ADDR, SSID_MAX);
+  String pass = readEEPROM(PASS_ADDR, PASS_MAX);
+
+  if (ssid.length() > 0) {
+    Serial.printf("WiFi: Connecting to '%s'...\n", ssid.c_str());
+    WiFi.mode(WIFI_STA);
+    WiFi.begin(ssid.c_str(), pass.c_str());
+
+    int attempts = 0;
+    while (WiFi.status() != WL_CONNECTED && attempts < 20) {
+      delay(500);
+      Serial.print(".");
+      attempts++;
+    }
+
+    if (WiFi.status() == WL_CONNECTED) {
+      wifiConnected = true;
+      apMode = false;
+      Serial.printf("\nWiFi OK! IP: %s\n", WiFi.localIP().toString().c_str());
+      return;
+    }
+    Serial.println("\nWiFi: Connection failed.");
+  }
+
+  // Start AP mode
+  apMode = true;
+  wifiConnected = false;
+  WiFi.mode(WIFI_AP);
+  WiFi.softAP("ESP12F-Setup", "");
+  Serial.printf("AP Mode: Connect to 'ESP12F-Setup' -> 192.168.4.1\n");
+
+  server.on("/", []() { server.send_P(200, "text/html", PORTAL_HTML); });
+
+  server.on("/save", HTTP_POST, []() {
+    String ssid = server.arg("ssid");
+    String pass = server.arg("pass");
+    writeEEPROM(SSID_ADDR, ssid, SSID_MAX);
+    writeEEPROM(PASS_ADDR, pass, PASS_MAX);
+    server.send(
+        200, "text/html",
+        "<h2 style='color:#0f0;text-align:center'>Salvo! Reiniciando...</h2>");
+    delay(1500);
+    ESP.restart();
+  });
+
+  server.begin();
+}
 
 // UI Bitmaps
+
+static const unsigned char PROGMEM image_Pin_star_bits[] = {0x92,0x54,0x38,0xfe,0x38,0x54,0x92};
 static const unsigned char PROGMEM image_weather_humidity_bits[] = {
     0x04, 0x00, 0x04, 0x00, 0x0c, 0x00, 0x0e, 0x00, 0x1e, 0x00, 0x1f,
     0x00, 0x3f, 0x80, 0x3f, 0x80, 0x7e, 0xc0, 0x7f, 0x40, 0xff, 0x60,
@@ -58,6 +183,10 @@ static const unsigned char PROGMEM image_clock_alarm_bits[] = {
     0x79, 0x3c, 0xb3, 0x9a, 0xed, 0x6e, 0xd0, 0x16, 0xa0, 0x0a, 0x41,
     0x04, 0x41, 0x04, 0x81, 0x02, 0xc1, 0x06, 0x82, 0x02, 0x44, 0x04,
     0x48, 0x04, 0x20, 0x08, 0x10, 0x10, 0x2d, 0x68, 0x43, 0x84};
+static const unsigned char PROGMEM image_calendar_bits[] = {
+    0x09, 0x20, 0x76, 0xdc, 0xff, 0xfe, 0xff, 0xfe, 0x80, 0x02, 0x86,
+    0xda, 0x86, 0xda, 0x80, 0x02, 0xb6, 0xda, 0xb6, 0xda, 0x80, 0x02,
+    0xb6, 0xc2, 0xb6, 0xc2, 0x80, 0x02, 0x7f, 0xfc, 0x00, 0x00};
 static const unsigned char PROGMEM image_earth_bits[] = {
     0x07, 0xc0, 0x1e, 0x70, 0x27, 0xf8, 0x61, 0xe4, 0x43, 0xe4, 0x87,
     0xca, 0x9f, 0xf6, 0xdf, 0x82, 0xdf, 0x82, 0xe3, 0xc2, 0x61, 0xf4,
@@ -106,12 +235,102 @@ static const unsigned char PROGMEM
         0x24, 0x14, 0x04, 0x04, 0x64, 0x94, 0x94, 0x64, 0x08, 0xf0};
 static const unsigned char PROGMEM image_mouth_bits[] = {0x82, 0x82, 0x82, 0x44,
                                                          0x38};
-static const unsigned char PROGMEM image_Battery_bits[] = {0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x0f,0xf0,0x10,0x08,0x32,0xa8,0x32,0xa8,0x10,0x08,0x0f,0xf0,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00};
+static const unsigned char PROGMEM image_Battery_bits[] = {
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x0f,
+    0xf0, 0x10, 0x08, 0x32, 0xa8, 0x32, 0xa8, 0x10, 0x08, 0x0f, 0xf0,
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
 
 bool flashState = false;
-bool eyeState = true; // true = open, false = closed
+bool eyeState = true;
 unsigned long lastBlink = 0;
 unsigned long blinkInterval = 3000;
+
+// Helper: Draw GPS signal bars at position
+void drawGPSBars(int x, int y) {
+  for (int i = 0; i < 4; i++) {
+    int barH = 2 + (i * 2);
+    int barY = y + (8 - barH);
+    if (i < gpsBars) {
+      display.fillRect(x + (i * 4), barY, 3, barH, 1);
+    } else {
+      display.drawRect(x + (i * 4), barY, 3, barH, 1);
+    }
+  }
+}
+
+// Helper: Draw animated face
+void drawFace() {
+  int eyeLX = 54, eyeRX = 76, eyeY = 6;
+
+  // Adjust eye position for LOOK animation
+  if (currentFace == FACE_LOOK) {
+    int offset = 0;
+    if (lookPhase == 1)
+      offset = -3; // look left
+    else if (lookPhase == 3)
+      offset = 3; // look right
+    eyeLX += offset;
+    eyeRX += offset;
+  }
+
+  switch (currentFace) {
+  case FACE_HAPPY:
+    // ^  ^ eyes (arc shapes)
+    display.drawLine(eyeLX - 3, eyeY + 1, eyeLX, eyeY - 2, 1);
+    display.drawLine(eyeLX, eyeY - 2, eyeLX + 3, eyeY + 1, 1);
+    display.drawLine(eyeRX - 3, eyeY + 1, eyeRX, eyeY - 2, 1);
+    display.drawLine(eyeRX, eyeY - 2, eyeRX + 3, eyeY + 1, 1);
+    // Big smile
+    display.drawLine(60, 12, 63, 15, 1);
+    display.drawLine(63, 15, 67, 15, 1);
+    display.drawLine(67, 15, 70, 12, 1);
+    break;
+
+  case FACE_SLEEPY:
+    // Half-closed eyes (lines lower)
+    display.drawLine(eyeLX - 3, eyeY + 2, eyeLX + 3, eyeY + 2, 1);
+    display.drawLine(eyeLX - 2, eyeY + 1, eyeLX + 2, eyeY + 1, 1);
+    display.drawLine(eyeRX - 3, eyeY + 2, eyeRX + 3, eyeY + 2, 1);
+    display.drawLine(eyeRX - 2, eyeY + 1, eyeRX + 2, eyeY + 1, 1);
+    // Small flat mouth
+    display.drawLine(62, 13, 68, 13, 1);
+    // "z z z" bubble
+    display.setFont(NULL);
+    display.setTextSize(1);
+    display.setCursor(80, 0);
+    display.print("z");
+    if (flashState) {
+      display.setCursor(85, 0);
+      display.print("z");
+    }
+    break;
+
+  case FACE_SURPRISED:
+    // Big round eyes
+    display.drawCircle(eyeLX, eyeY, 4, 1);
+    display.fillCircle(eyeLX, eyeY, 2, 1);
+    display.drawCircle(eyeRX, eyeY, 4, 1);
+    display.fillCircle(eyeRX, eyeY, 2, 1);
+    // Small "O" mouth
+    display.drawCircle(65, 13, 2, 1);
+    break;
+
+  case FACE_LOOK:
+  case FACE_NORMAL:
+  default:
+    // Normal eyes with blink
+    if (eyeState) {
+      display.fillCircle(eyeLX, eyeY, 3, 1);
+      display.fillCircle(eyeRX, eyeY, 3, 1);
+    } else {
+      display.drawLine(eyeLX - 3, eyeY, eyeLX + 3, eyeY, 1);
+      display.drawLine(eyeRX - 3, eyeY, eyeRX + 3, eyeY, 1);
+    }
+    // Normal mouth
+    display.drawBitmap(62, 10, image_mouth_bits, 7, 5, 1);
+    break;
+  }
+}
 
 void draw(void) {
   display.clearDisplay();
@@ -129,11 +348,15 @@ void draw(void) {
   display.drawBitmap(122, -29, image_passport_left__copy___copy___copy__bits, 6,
                      46, 1);
 
-  // Layer 7 (Separator line)
+  // Separator line
   display.drawLine(5, 18, 122, 18, 1);
 
-  // GPS/System Indicators
-  display.drawBitmap(65, 24, image_clock_alarm_bits, 15, 16, 1);
+  // Clock / Calendar (alternates)
+  if (showDate) {
+    display.drawBitmap(65, 24, image_calendar_bits, 15, 16, 1);
+  } else {
+    display.drawBitmap(65, 24, image_clock_alarm_bits, 15, 16, 1);
+  }
 
   if (hasGPSFix) {
     display.drawBitmap(65, 45, image_earth_bits, 15, 16, 1);
@@ -143,13 +366,23 @@ void draw(void) {
     }
   }
 
-  // Bluetooth Icons
-  display.drawBitmap(115, 0, image_Bluetooth_Idle_bits, 5, 8, 1);
-  display.drawBitmap(106, 0, image_BLE_beacon_bits, 7, 8, 1);
-  // Battery
-  display.drawBitmap(106, 5, image_Battery_bits, 16, 16, 1);
+  // Bluetooth Icon (blinks when WiFi not connected)
+  //if (wifiConnected || iconBlinkState) {
+  //  display.drawBitmap(115, 0, image_Bluetooth_Idle_bits, 5, 8, 1);
+  //}
+  // Pin_star
+  display.drawBitmap(104, 1, image_Pin_star_bits, 7, 7, 1);
+  // BLE Beacon (blinks when WiFi not connected)
+  if (wifiConnected || iconBlinkState) {
+    display.drawBitmap(113, 0, image_BLE_beacon_bits, 7, 8, 1);
+  }
 
-  // Dynamic Weather Icon based on Humidity (Example logic)
+  // Battery (blink speed depends on level)
+  if (battBlinkState) {
+    display.drawBitmap(106, 5, image_Battery_bits, 16, 16, 1);
+  }
+
+  // Dynamic Weather Icon
   int hum = ui_hum.toInt();
   if (hum > 70) {
     display.drawBitmap(8, 0, image_weather_cloud_rain_bits, 17, 16, 1);
@@ -160,14 +393,7 @@ void draw(void) {
   }
 
   // Animated Face
-  if (eyeState) {
-    display.fillCircle(54, 6, 3, 1);
-    display.fillCircle(76, 6, 3, 1);
-  } else {
-    display.drawLine(51, 6, 57, 6, 1);
-    display.drawLine(73, 6, 79, 6, 1);
-  }
-  display.drawBitmap(62, 10, image_mouth_bits, 7, 5, 1);
+  drawFace();
 
   // Text Values
   display.setFont(&Org_01);
@@ -183,12 +409,34 @@ void draw(void) {
   display.setCursor(27, 35);
   display.print(ui_temp);
 
-  // Bottom section data
-  display.setTextSize(1);
+  // Date / Time display (alternates every 3s)
+  if (showDate) {
+    // Date: day (big), month (small top), year (small bottom)
+    display.setTextSize(2);
+    display.setCursor(86, 35);
+    display.print(ui_date.substring(0, 2));
 
-  // GPS Time
-  display.setCursor(84, 33);
-  display.print(ui_time);
+    display.setTextSize(1);
+    display.setCursor(109, 30);
+    display.print(ui_date.substring(3, 5));
+
+    display.setCursor(109, 37);
+    display.print(ui_date.substring(6, 8));
+  } else {
+    // Time: hours (big), minutes (small top), seconds (small bottom)
+    display.setTextSize(2);
+    display.setCursor(86, 35);
+    display.print(ui_time.substring(0, 2));
+
+    display.setTextSize(1);
+    display.setCursor(109, 30);
+    display.print(ui_time.substring(3, 5));
+
+    display.setCursor(109, 37);
+    display.print(ui_time.substring(6, 8));
+  }
+
+  display.setTextSize(1);
 
   // Latitude
   display.setCursor(84, 49);
@@ -215,39 +463,98 @@ void setup() {
 
   display.clearDisplay();
   display.display();
+  noFixSince = millis();
+
+  setupWiFi();
 
   Serial.println(F("System Initialized."));
 }
 
 unsigned long lastUpdate = 0;
 unsigned long lastFlash = 0;
+unsigned long lastLookStep = 0;
+unsigned long lookTriggerTime = 0;
+bool lookActive = false;
 
 void loop() {
-  // GPS Processing - CRITICAL: Must be as frequent as possible
+  // Handle WiFi captive portal
+  if (apMode)
+    server.handleClient();
+
+  // GPS Processing
   while (gpsSerial.available() > 0) {
     gps.encode(gpsSerial.read());
   }
 
-  // Blinking Logic
-  if (millis() - lastBlink > (eyeState ? blinkInterval : 150)) {
-    lastBlink = millis();
-    eyeState = !eyeState;
-    if (eyeState)
-      blinkInterval = random(2000, 6000); // Randomize next blink
+  unsigned long now = millis();
+
+  // Battery blink timing (full=no blink, medium=1s, low=250ms)
+  unsigned long battInterval = 0;
+  if (batteryLevel == 0)
+    battInterval = 250; // fast blink: low
+  else if (batteryLevel <= 2)
+    battInterval = 1000; // slow blink: medium/charging
+  // level 3 = full, no blink (always on)
+
+  if (battInterval > 0 && now - lastBattBlink > battInterval) {
+    lastBattBlink = now;
+    battBlinkState = !battBlinkState;
+  } else if (battInterval == 0) {
+    battBlinkState = true; // always on when full
+  }
+
+  // WiFi icon blink (500ms when not connected)
+  if (!wifiConnected && now - lastIconBlink > 500) {
+    lastIconBlink = now;
+    iconBlinkState = !iconBlinkState;
+  } else if (wifiConnected) {
+    iconBlinkState = true; // always on when connected
+  }
+
+  // Blinking Logic (face)
+  if (currentFace == FACE_NORMAL || currentFace == FACE_LOOK) {
+    if (now - lastBlink > (eyeState ? blinkInterval : 150)) {
+      lastBlink = now;
+      eyeState = !eyeState;
+      if (eyeState)
+        blinkInterval = random(2000, 6000);
+      draw();
+    }
+  }
+
+  // Look Around Animation Steps
+  if (currentFace == FACE_LOOK && now - lastLookStep > 400) {
+    lastLookStep = now;
+    lookPhase++;
+    if (lookPhase > 4) {
+      lookPhase = 0;
+      currentFace = FACE_NORMAL;
+    }
     draw();
   }
 
-  // Flashing logic (every 500ms)
-  if (millis() - lastFlash > 500) {
-    lastFlash = millis();
+  // Flashing logic (500ms - satellite dish, sleepy z's)
+  if (now - lastFlash > 500) {
+    lastFlash = now;
     flashState = !flashState;
-    if (!hasGPSFix)
-      draw(); // Redraw only if searching to see the flash
+    draw();
+  }
+
+  // Date/Time toggle (every 5s)
+  if (now - lastDateToggle > 5000) {
+    lastDateToggle = now;
+    showDate = !showDate;
+    draw();
   }
 
   // Value Updates (every 1 second)
-  if (millis() - lastUpdate > 1000) {
-    lastUpdate = millis();
+  if (now - lastUpdate > 1000) {
+    lastUpdate = now;
+
+    // Check WiFi status
+    if (!apMode) {
+      wifiConnected = (WiFi.status() == WL_CONNECTED);
+    }
 
     // Read Sensors
     float h = dht.readHumidity();
@@ -255,32 +562,107 @@ void loop() {
 
     if (!isnan(h))
       ui_hum = String((int)h);
-    if (!isnan(t))
+    if (!isnan(t)) {
+      if (lastTemp != 0 && abs(t - lastTemp) > 3.0 &&
+          (now - lastTempChange < 10000)) {
+        currentFace = FACE_SURPRISED;
+        faceStateStart = now;
+      }
+      lastTemp = t;
+      lastTempChange = now;
       ui_temp = String((int)t);
+    }
 
-    // Read GPS Time (Usually available before location fix)
+    // Battery level from VCC
+    uint16_t vcc = ESP.getVcc();
+    if (vcc > 3200)
+      batteryLevel = 3;
+    else if (vcc > 3000)
+      batteryLevel = 2;
+    else if (vcc > 2800)
+      batteryLevel = 1;
+    else
+      batteryLevel = 0;
+
+    // GPS Time (UTC-3 Brasília)
     if (gps.time.isValid() && gps.time.age() < 2000) {
-      char timeStr[10];
-      sprintf(timeStr, "%02d:%02d:%02d", gps.time.hour(), gps.time.minute(),
-              gps.time.second());
+      int hour = (gps.time.hour() - 3 + 24) % 24; // UTC-3
+      char timeStr[12];
+      snprintf(timeStr, sizeof(timeStr), "%02d:%02d:%02d", hour,
+               gps.time.minute(), gps.time.second());
       ui_time = String(timeStr);
     } else {
       ui_time = "00:00:00";
     }
 
-    // Read GPS Location
+    // GPS Date
+    if (gps.date.isValid() && gps.date.age() < 2000) {
+      char dateStr[12];
+      snprintf(dateStr, sizeof(dateStr), "%02d/%02d/%02d", gps.date.day(),
+               gps.date.month(), gps.date.year() % 100);
+      ui_date = String(dateStr);
+    } else {
+      ui_date = "00/00/00";
+    }
+
+    // GPS Location
+    bool hadFix = hasGPSFix;
     hasGPSFix = gps.location.isValid() && gps.location.age() < 5000;
+
     if (hasGPSFix) {
       ui_lat = String(gps.location.lat(), 2);
       ui_lon = String(gps.location.lng(), 2);
+      if (!hadFix) {
+        currentFace = FACE_HAPPY;
+        faceStateStart = now;
+      }
+      noFixSince = now;
     } else {
       ui_lat = "-0.00";
       ui_lon = "-0.00";
+      if (now - noFixSince > 30000 && currentFace == FACE_NORMAL) {
+        currentFace = FACE_SLEEPY;
+        faceStateStart = now;
+      }
     }
 
-    Serial.printf("Temp: %s, Hum: %s, Sat: %d, Fix: %s, Time: %s\n",
-                  ui_temp.c_str(), ui_hum.c_str(), gps.satellites.value(),
-                  hasGPSFix ? "YES" : "NO", ui_time.c_str());
+    // GPS signal bars
+    int sats = gps.satellites.value();
+    if (sats >= 7)
+      gpsBars = 4;
+    else if (sats >= 5)
+      gpsBars = 3;
+    else if (sats >= 3)
+      gpsBars = 2;
+    else if (sats >= 1)
+      gpsBars = 1;
+    else
+      gpsBars = 0;
+
+    // Face state timeouts
+    if (currentFace == FACE_HAPPY && now - faceStateStart > 5000)
+      currentFace = FACE_NORMAL;
+    if (currentFace == FACE_SURPRISED && now - faceStateStart > 3000)
+      currentFace = FACE_NORMAL;
+    if (currentFace == FACE_SLEEPY && hasGPSFix) {
+      currentFace = FACE_HAPPY;
+      faceStateStart = now;
+    }
+
+    // Random Look Around
+    if (currentFace == FACE_NORMAL && !lookActive && random(0, 15) == 0) {
+      currentFace = FACE_LOOK;
+      lookPhase = 0;
+      lastLookStep = now;
+      lookActive = true;
+    }
+    if (currentFace != FACE_LOOK)
+      lookActive = false;
+
+    Serial.printf("Face:%d Bat:%d(%dmV) WiFi:%s Sat:%d T:%s\n", currentFace,
+                  batteryLevel, vcc,
+                  wifiConnected ? "OK" : (apMode ? "AP" : "X"), sats,
+                  ui_time.c_str());
 
     draw();
   }
