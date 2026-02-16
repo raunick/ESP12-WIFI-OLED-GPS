@@ -1,332 +1,287 @@
+#include "Org_01.h"
 #include <Adafruit_GFX.h>
 #include <Adafruit_SSD1306.h>
 #include <Arduino.h>
-#include <ESP8266WebServer.h>
-#include <ESP8266WiFi.h>
-#include <ESP8266mDNS.h>
+#include <DHT.h>
 #include <SoftwareSerial.h>
-#include <TinyGPS++.h>
+#include <TinyGPSPlus.h>
 #include <Wire.h>
-#include <espnow.h>
 
-/*
- * =====================================================================
- * ESP-12F MASTER CONTROLLER v3.2 (ASYNC OLED)
- * =====================================================================
- * FIXES:
- * - v3.1: Moved ESP-NOW Send to Loop (Anti-Crash)
- * - v3.2: Moved OLED Update to Loop (Anti-Freeze/Corruption)
- * =====================================================================
- */
-
-const char *ssid = "RAUL";
-const char *password = "24681357";
-
-// Hardware PINOUT
+#define SCREEN_WIDTH 128
+#define SCREEN_HEIGHT 64
+#define OLED_RESET -1
+#define SCREEN_ADDRESS 0x3C
 #define OLED_SDA 2
 #define OLED_SCL 14
-#define LED_NODE_PIN 16
-#define LED_BOARD_PIN 4
-#define GPS_RX_PIN 12 // Connect to GPS TX
-#define GPS_TX_PIN 13 // Connect to GPS RX
-#define GPS_BAUD 9600
-#define SCREEN_ADDRESS 0x3C
 
-uint8_t broadcastAddress[] = {0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF};
+// GPS Pins (D6 = GPIO12, D7 = GPIO13)
+#define GPS_RX 12
+#define GPS_TX 13
 
-Adafruit_SSD1306 display(128, 64, &Wire, -1);
-ESP8266WebServer server(80);
+// DHT Sensor Pin (GPIO05 = D1)
+#define DHTPIN 5
+#define DHTTYPE DHT11
+
+Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
+SoftwareSerial gpsSerial(GPS_RX, GPS_TX);
 TinyGPSPlus gps;
-SoftwareSerial gpsSerial(GPS_RX_PIN, GPS_TX_PIN);
+DHT dht(DHTPIN, DHTTYPE);
 
-// State
-bool stateNode = false;
-bool stateBoard = false;
-bool remoteRelayState1 = false;
-bool remoteRelayState2 = false;
+// UI Variables
+String ui_time = "00:00:00";
+String ui_temp = "--";
+String ui_hum = "--";
+String ui_lat = "-0.00";
+String ui_lon = "-0.00";
+bool hasGPSFix = false;
 
-// Flags for Loop Logic
-int targetToSend = 0;        // 0 = none, 1 = Slave 1, 2 = Slave 2
-bool oledNeedsUpdate = true; // Start true to draw initial screen
+// UI Bitmaps
+static const unsigned char PROGMEM image_weather_humidity_bits[] = {
+    0x04, 0x00, 0x04, 0x00, 0x0c, 0x00, 0x0e, 0x00, 0x1e, 0x00, 0x1f,
+    0x00, 0x3f, 0x80, 0x3f, 0x80, 0x7e, 0xc0, 0x7f, 0x40, 0xff, 0x60,
+    0xff, 0xe0, 0x7f, 0xc0, 0x7f, 0xc0, 0x3f, 0x80, 0x0f, 0x00};
+static const unsigned char PROGMEM image_weather_temperature_bits[] = {
+    0x1c, 0x00, 0x22, 0x02, 0x2b, 0x05, 0x2a, 0x02, 0x2b, 0x38, 0x2a,
+    0x60, 0x2b, 0x40, 0x2a, 0x40, 0x2a, 0x60, 0x49, 0x38, 0x9c, 0x80,
+    0xae, 0x80, 0xbe, 0x80, 0x9c, 0x80, 0x41, 0x00, 0x3e, 0x00};
+static const unsigned char PROGMEM image_passport_left_bits[] = {
+    0x3c, 0x40, 0x98, 0xa4, 0xa4, 0x98, 0x80, 0x80, 0xa0, 0x90, 0x88, 0xa4,
+    0x90, 0x88, 0xa4, 0x90, 0x88, 0xa4, 0x90, 0x88, 0xa4, 0x90, 0x88, 0xa4,
+    0x90, 0x88, 0x84, 0x80, 0x40, 0x60, 0x70, 0x78, 0x7c, 0x5c, 0x4c, 0x4c,
+    0x4c, 0x4c, 0x4c, 0x4c, 0x4c, 0x4c, 0x4c, 0x4c, 0x4c, 0x4c};
+static const unsigned char PROGMEM image_passport_left__copy__bits[] = {
+    0xf0, 0x08, 0x64, 0x94, 0x94, 0x64, 0x04, 0x04, 0x14, 0x24, 0x44, 0x94,
+    0x24, 0x44, 0x94, 0x24, 0x44, 0x94, 0x24, 0x44, 0x94, 0x24, 0x44, 0x94,
+    0x24, 0x44, 0x84, 0x04, 0x08, 0x18, 0x38, 0x78, 0xf8, 0xe8, 0xc8, 0xc8,
+    0xc8, 0xc8, 0xc8, 0xc8, 0xc8, 0xc8, 0xc8, 0xc8, 0xc8, 0xc8};
+static const unsigned char PROGMEM image_clock_alarm_bits[] = {
+    0x79, 0x3c, 0xb3, 0x9a, 0xed, 0x6e, 0xd0, 0x16, 0xa0, 0x0a, 0x41,
+    0x04, 0x41, 0x04, 0x81, 0x02, 0xc1, 0x06, 0x82, 0x02, 0x44, 0x04,
+    0x48, 0x04, 0x20, 0x08, 0x10, 0x10, 0x2d, 0x68, 0x43, 0x84};
+static const unsigned char PROGMEM image_earth_bits[] = {
+    0x07, 0xc0, 0x1e, 0x70, 0x27, 0xf8, 0x61, 0xe4, 0x43, 0xe4, 0x87,
+    0xca, 0x9f, 0xf6, 0xdf, 0x82, 0xdf, 0x82, 0xe3, 0xc2, 0x61, 0xf4,
+    0x70, 0xf4, 0x31, 0xf8, 0x1b, 0xf0, 0x07, 0xc0, 0x00, 0x00};
+static const unsigned char PROGMEM image_passport_left__copy___copy__bits[] = {
+    0x4c, 0x4c, 0x4c, 0x4c, 0x4c, 0x4c, 0x4c, 0x4c, 0x4c, 0x4c, 0x4c, 0x4c,
+    0x5c, 0x7c, 0x78, 0x70, 0x60, 0x40, 0x80, 0x84, 0x88, 0x90, 0xa4, 0x88,
+    0x90, 0xa4, 0x88, 0x90, 0xa4, 0x88, 0x90, 0xa4, 0x88, 0x90, 0xa4, 0x88,
+    0x90, 0xa0, 0x80, 0x80, 0x98, 0xa4, 0xa4, 0x98, 0x40, 0x3c};
+static const unsigned char PROGMEM image_weather_sun_bits[] = {
+    0x01, 0x00, 0x21, 0x08, 0x10, 0x10, 0x03, 0x80, 0x8c, 0x62, 0x48,
+    0x24, 0x10, 0x10, 0x10, 0x10, 0x10, 0x10, 0x48, 0x24, 0x8c, 0x62,
+    0x03, 0x80, 0x10, 0x10, 0x21, 0x08, 0x01, 0x00, 0x00, 0x00};
+static const unsigned char PROGMEM image_weather_cloud_rain_bits[] = {
+    0x00, 0x00, 0x00, 0x07, 0xc0, 0x00, 0x08, 0x20, 0x00, 0x10, 0x10, 0x00,
+    0x30, 0x08, 0x00, 0x40, 0x0e, 0x00, 0x80, 0x01, 0x00, 0x80, 0x00, 0x80,
+    0x40, 0x00, 0x80, 0x3f, 0xff, 0x00, 0x01, 0x10, 0x00, 0x22, 0x22, 0x00,
+    0x44, 0x84, 0x00, 0x91, 0x28, 0x00, 0x22, 0x40, 0x00, 0x00, 0x80, 0x00};
+static const unsigned char PROGMEM image_weather_cloud_lightning_bolt_bits[] = {
+    0x00, 0x00, 0x00, 0x07, 0xc0, 0x00, 0x08, 0x20, 0x00, 0x10, 0x10, 0x00,
+    0x30, 0x08, 0x00, 0x40, 0x0e, 0x00, 0x80, 0x81, 0x00, 0x81, 0x00, 0x80,
+    0x43, 0x00, 0x80, 0x26, 0x3f, 0x00, 0x0f, 0x80, 0x00, 0x01, 0x80, 0x00,
+    0x03, 0x00, 0x00, 0x02, 0x00, 0x00, 0x04, 0x00, 0x00, 0x00, 0x00, 0x00};
+static const unsigned char PROGMEM image_satellite_dish_bits[] = {
+    0x00, 0x00, 0x00, 0x78, 0x30, 0x04, 0x2c, 0x32, 0x63, 0x0a, 0xa8,
+    0xea, 0x92, 0xa2, 0x90, 0xe0, 0x89, 0x10, 0x8a, 0x48, 0x44, 0x08,
+    0x43, 0x24, 0x20, 0xc4, 0x30, 0x3c, 0x0c, 0x10, 0x03, 0xe0};
+static const unsigned char PROGMEM image_weather_cloud_sunny_bits[] = {
+    0x00, 0x20, 0x00, 0x02, 0x02, 0x00, 0x00, 0x70, 0x00, 0x01, 0x8c, 0x00,
+    0x09, 0x04, 0x80, 0x02, 0x02, 0x00, 0x02, 0x02, 0x00, 0x07, 0x82, 0x00,
+    0x08, 0x44, 0x80, 0x10, 0x2c, 0x00, 0x30, 0x30, 0x00, 0x60, 0x1e, 0x00,
+    0x80, 0x03, 0x00, 0x80, 0x01, 0x00, 0x80, 0x01, 0x00, 0x7f, 0xfe, 0x00};
+static const unsigned char PROGMEM image_weather_wind_bits[] = {
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x30, 0x03, 0x88, 0x04, 0x44, 0x04,
+    0x44, 0x00, 0x44, 0x00, 0x88, 0xff, 0x32, 0x00, 0x00, 0xad, 0x82,
+    0x00, 0x60, 0x00, 0x10, 0x00, 0x10, 0x01, 0x20, 0x00, 0xc0};
+static const unsigned char PROGMEM image_Bluetooth_Idle_bits[] = {
+    0x20, 0xb0, 0x68, 0x30, 0x30, 0x68, 0xb0, 0x20};
+static const unsigned char PROGMEM image_BLE_beacon_bits[] = {
+    0x44, 0x92, 0xaa, 0x92, 0x54, 0x10, 0x10, 0x7c};
+static const unsigned char PROGMEM
+    image_passport_left__copy___copy___copy__bits[] = {
+        0xc8, 0xc8, 0xc8, 0xc8, 0xc8, 0xc8, 0xc8, 0xc8, 0xc8, 0xc8, 0xc8, 0xc8,
+        0xe8, 0xf8, 0x78, 0x38, 0x18, 0x08, 0x04, 0x84, 0x44, 0x24, 0x94, 0x44,
+        0x24, 0x94, 0x44, 0x24, 0x94, 0x44, 0x24, 0x94, 0x44, 0x24, 0x94, 0x44,
+        0x24, 0x14, 0x04, 0x04, 0x64, 0x94, 0x94, 0x64, 0x08, 0xf0};
+static const unsigned char PROGMEM image_mouth_bits[] = {0x82, 0x82, 0x82, 0x44,
+                                                         0x38};
+static const unsigned char PROGMEM image_Battery_bits[] = {0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x0f,0xf0,0x10,0x08,0x32,0xa8,0x32,0xa8,0x10,0x08,0x0f,0xf0,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00};
 
-// Structs (Packed)
-typedef struct __attribute__((packed)) struct_status {
-  int senderID;
-  bool relayState;
-} struct_status;
-struct_status incomingStatus;
+bool flashState = false;
+bool eyeState = true; // true = open, false = closed
+unsigned long lastBlink = 0;
+unsigned long blinkInterval = 3000;
 
-typedef struct __attribute__((packed)) struct_cmd {
-  int targetID; // 1 for Slave A, 2 for Slave B
-  int command;
-} struct_cmd;
-struct_cmd myCommand;
-
-void updateOLED() {
+void draw(void) {
   display.clearDisplay();
-  display.setTextColor(SSD1306_WHITE);
 
-  // TOP INFO BAR
-  display.setTextSize(1);
-  display.setCursor(0, 0);
-  display.print("HTTP://ESP-12F.LOCAL");
-  display.drawFastHLine(0, 13, 128, SSD1306_WHITE);
+  // weather_humidity
+  display.drawBitmap(9, 45, image_weather_humidity_bits, 11, 16, 1);
 
-  // CENTER STATUS AREA
-  // LED 1 (Node)
-  display.setCursor(0, 18);
-  display.print("L1:");
-  if (stateNode)
-    display.fillCircle(22, 20, 4, SSD1306_WHITE);
-  else
-    display.drawCircle(22, 20, 4, SSD1306_WHITE);
+  // weather_temperature
+  display.drawBitmap(9, 24, image_weather_temperature_bits, 16, 16, 1);
 
-  // LED 2 (Board)
-  display.setCursor(35, 18);
-  display.print("L2:");
-  if (stateBoard)
-    display.fillCircle(57, 20, 4, SSD1306_WHITE);
-  else
-    display.drawCircle(57, 20, 4, SSD1306_WHITE);
+  // passport_borders
+  display.drawBitmap(0, 18, image_passport_left_bits, 6, 46, 1);
+  display.drawBitmap(122, 18, image_passport_left__copy__bits, 6, 46, 1);
+  display.drawBitmap(0, -29, image_passport_left__copy___copy__bits, 6, 46, 1);
+  display.drawBitmap(122, -29, image_passport_left__copy___copy___copy__bits, 6,
+                     46, 1);
 
-  display.drawFastHLine(0, 27, 128, SSD1306_WHITE);
+  // Layer 7 (Separator line)
+  display.drawLine(5, 18, 122, 18, 1);
 
-  // LED 3 (Remote Slaves)
-  display.setCursor(70, 18);
-  display.print("S1:");
-  if (remoteRelayState1)
-    display.fillCircle(90, 20, 3, SSD1306_WHITE);
-  else
-    display.drawCircle(90, 20, 3, SSD1306_WHITE);
+  // GPS/System Indicators
+  display.drawBitmap(65, 24, image_clock_alarm_bits, 15, 16, 1);
 
-  display.setCursor(100, 18);
-  display.print("S2:");
-  if (remoteRelayState2)
-    display.fillCircle(120, 20, 3, SSD1306_WHITE);
-  else
-    display.drawCircle(120, 20, 3, SSD1306_WHITE);
-
-  // BOTTOM DATA AREA
-  if (gps.location.isValid()) {
-    display.setCursor(0, 32);
-    display.print("GPS SATS:");
-    display.print(gps.satellites.value());
-    display.setCursor(0, 44);
-    display.print("LAT:");
-    display.print(gps.location.lat(), 4);
-    display.setCursor(0, 54);
-    display.print("LON:");
-    display.print(gps.location.lng(), 4);
+  if (hasGPSFix) {
+    display.drawBitmap(65, 45, image_earth_bits, 15, 16, 1);
   } else {
-    display.setCursor(35, 38);
-    display.print("WAITING GPS");
-    static int anim = 0;
-    anim = (anim + 1) % 4;
-    for (int i = 0; i < anim; i++)
-      display.print(".");
-
-    display.setCursor(0, 54);
-    display.print("R1:");
-    display.print(remoteRelayState1 ? "ON" : "OFF");
-    display.print(" R2:");
-    display.print(remoteRelayState2 ? "ON" : "OFF");
+    if (flashState) {
+      display.drawBitmap(67, 44, image_satellite_dish_bits, 15, 16, 1);
+    }
   }
+
+  // Bluetooth Icons
+  display.drawBitmap(115, 0, image_Bluetooth_Idle_bits, 5, 8, 1);
+  display.drawBitmap(106, 0, image_BLE_beacon_bits, 7, 8, 1);
+  // Battery
+  display.drawBitmap(106, 5, image_Battery_bits, 16, 16, 1);
+
+  // Dynamic Weather Icon based on Humidity (Example logic)
+  int hum = ui_hum.toInt();
+  if (hum > 70) {
+    display.drawBitmap(8, 0, image_weather_cloud_rain_bits, 17, 16, 1);
+  } else if (hum > 50) {
+    display.drawBitmap(8, 0, image_weather_cloud_sunny_bits, 17, 16, 1);
+  } else {
+    display.drawBitmap(8, 0, image_weather_sun_bits, 15, 16, 1);
+  }
+
+  // Animated Face
+  if (eyeState) {
+    display.fillCircle(54, 6, 3, 1);
+    display.fillCircle(76, 6, 3, 1);
+  } else {
+    display.drawLine(51, 6, 57, 6, 1);
+    display.drawLine(73, 6, 79, 6, 1);
+  }
+  display.drawBitmap(62, 10, image_mouth_bits, 7, 5, 1);
+
+  // Text Values
+  display.setFont(&Org_01);
+  display.setTextColor(1);
+  display.setTextSize(2);
+  display.setTextWrap(false);
+
+  // Humidity Value
+  display.setCursor(27, 56);
+  display.print(ui_hum + "%");
+
+  // Temperature Value
+  display.setCursor(27, 35);
+  display.print(ui_temp);
+
+  // Bottom section data
+  display.setTextSize(1);
+
+  // GPS Time
+  display.setCursor(84, 33);
+  display.print(ui_time);
+
+  // Latitude
+  display.setCursor(84, 49);
+  display.print(ui_lat);
+
+  // Longitude
+  display.setCursor(84, 59);
+  display.print(ui_lon);
 
   display.display();
 }
 
-// Callback: Receive Status
-void OnDataRecv(uint8_t *mac, uint8_t *incomingData, uint8_t len) {
-  if (len != sizeof(struct_status))
-    return;
-  memcpy(&incomingStatus, incomingData, sizeof(incomingStatus));
-
-  if (incomingStatus.senderID == 1)
-    remoteRelayState1 = incomingStatus.relayState;
-  else if (incomingStatus.senderID == 2)
-    remoteRelayState2 = incomingStatus.relayState;
-
-  oledNeedsUpdate = true;
-}
-
-void handleRoot() {
-  String html = "<!DOCTYPE html><html><head>";
-  html += "<meta charset='utf-8'><meta name='viewport' "
-          "content='width=device-width,initial-scale=1'>";
-  html += "<title>CYBER-CMD v3.3</title>";
-  html += "<style>";
-  html += ":root{--cyan:#00f3ff;--bg:#0a0a0b;--panel:rgba(255,255,255,0.05);--"
-          "red:#ff0055;}";
-  html += "body{background:var(--bg);color:#eee;font-family:'Segoe "
-          "UI',Roboto,sans-serif;margin:0;padding:20px;display:flex;flex-"
-          "direction:column;align-items:center;min-height:100vh;}";
-  html += ".header{text-align:center;margin-bottom:30px;border-bottom:1px "
-          "solid var(--cyan);padding-bottom:10px;width:100%;max-width:400px;}";
-  html += ".header "
-          "h1{margin:0;font-size:1.2rem;letter-spacing:4px;color:var(--cyan);"
-          "text-transform:uppercase;}";
-  html += ".card{background:var(--panel);backdrop-filter:blur(10px);border:1px "
-          "solid "
-          "rgba(255,255,255,0.1);border-radius:15px;padding:20px;width:100%;"
-          "max-width:400px;margin-bottom:15px;box-sizing:border-box;}";
-  html += ".status-box{display:flex;justify-content:space-between;align-items:"
-          "center;margin-bottom:10px;}";
-  html += ".btn{display:block;width:100%;padding:15px;margin:10px 0;border:1px "
-          "solid "
-          "var(--cyan);background:transparent;color:var(--cyan);font-weight:"
-          "bold;text-transform:uppercase;cursor:pointer;border-radius:8px;"
-          "transition:0.3s;}";
-  html += ".btn:hover{background:var(--cyan);color:var(--bg);box-shadow:0 0 "
-          "15px var(--cyan);}";
-  html += ".btn.active{background:var(--cyan);color:var(--bg);}";
-  html += ".btn.danger{border-color:var(--red);color:var(--red);}";
-  html += ".btn.danger:hover{background:var(--red);color:#fff;box-shadow:0 0 "
-          "15px var(--red);}";
-  html +=
-      ".gps-data{font-family:monospace;color:var(--cyan);font-size:0.9rem;}";
-  html += "@keyframes pulse{0%{opacity:1;}50%{opacity:0.6;}100%{opacity:1;}}";
-  html += ".live{animation:pulse 2s infinite;}";
-  html += "</style></head><body>";
-
-  html += "<div class='header'><h1>Cyber-Master</h1><small>" +
-          WiFi.localIP().toString() + " | " + String(WiFi.RSSI()) +
-          "dBm</small></div>";
-
-  html += "<div class='card'>";
-  html += "<h3>LOCAL CONTROLS</h3>";
-  html += "<a href='/t16' style='text-decoration:none'><button class='btn " +
-          String(stateNode ? "active" : "") + "'>NODE LED " +
-          String(stateNode ? "[ON]" : "[OFF]") + "</button></a>";
-  html += "<a href='/t4' style='text-decoration:none'><button class='btn " +
-          String(stateBoard ? "active" : "") + "'>BOARD LED " +
-          String(stateBoard ? "[ON]" : "[OFF]") + "</button></a>";
-  html += "</div>";
-
-  html += "<div class='card'>";
-  html += "<h3>REMOTES (ESP-01S)</h3>";
-
-  // Slave 1
-  html += "<div class='status-box'><span>Slave 01: " +
-          String(remoteRelayState1 ? "ON" : "OFF") + "</span></div>";
-  html +=
-      "<a href='/r1' style='text-decoration:none'><button class='btn danger'>" +
-      String(remoteRelayState1 ? "OFF SLAVE 1" : "ON SLAVE 1") +
-      "</button></a>";
-
-  html += "<hr style='border:1px solid rgba(255,255,255,0.05); margin:15px 0'>";
-
-  // Slave 2
-  html += "<div class='status-box'><span>Slave 02: " +
-          String(remoteRelayState2 ? "ON" : "OFF") + "</span></div>";
-  html +=
-      "<a href='/r2' style='text-decoration:none'><button class='btn danger'>" +
-      String(remoteRelayState2 ? "OFF SLAVE 2" : "ON SLAVE 2") +
-      "</button></a>";
-  html += "</div>";
-
-  html += "<div class='card'>";
-  html += "<h3>GPS TELEMETRY</h3>";
-  if (gps.location.isValid()) {
-    html += "<div class='gps-data'>";
-    html += "<p class='live'>🛰 SIGNAL LOCKED (" +
-            String(gps.satellites.value()) + " SAT)</p>";
-    html += "<p>LAT: " + String(gps.location.lat(), 6) + "</p>";
-    html += "<p>LNG: " + String(gps.location.lng(), 6) + "</p>";
-    html +=
-        "<a href='https://maps.google.com/?q=" + String(gps.location.lat(), 6) +
-        "," + String(gps.location.lng(), 6) +
-        "' target='_blank' style='text-decoration:none'><button "
-        "class='btn'>OPEN IN GOOGLE MAPS</button></a>";
-    html += "</div>";
-  } else {
-    html += "<p class='live'>🛰 SEARCHING SATELLITES...</p>";
-  }
-  html += "</div>";
-
-  html += "</body></html>";
-  server.send(200, "text/html", html);
-}
-
 void setup() {
   Serial.begin(115200);
-  gpsSerial.begin(GPS_BAUD);
-
-  pinMode(LED_NODE_PIN, OUTPUT);
-  pinMode(LED_BOARD_PIN, OUTPUT);
-  digitalWrite(LED_NODE_PIN, LOW);
-  digitalWrite(LED_BOARD_PIN, HIGH);
-
+  gpsSerial.begin(9600);
   Wire.begin(OLED_SDA, OLED_SCL);
-  if (display.begin(SSD1306_SWITCHCAPVCC, SCREEN_ADDRESS)) {
-    display.clearDisplay();
-    display.display();
+  dht.begin();
+
+  if (!display.begin(SSD1306_SWITCHCAPVCC, SCREEN_ADDRESS)) {
+    Serial.println(F("SSD1306 allocation failed"));
+    for (;;)
+      ;
   }
 
-  WiFi.mode(WIFI_STA);
-  WiFi.begin(ssid, password);
-  while (WiFi.status() != WL_CONNECTED)
-    delay(200);
+  display.clearDisplay();
+  display.display();
 
-  MDNS.begin("esp-12f");
-
-  if (esp_now_init() != 0)
-    return;
-  esp_now_set_self_role(ESP_NOW_ROLE_COMBO);
-  esp_now_register_recv_cb(OnDataRecv);
-  esp_now_add_peer(broadcastAddress, ESP_NOW_ROLE_COMBO, 1, NULL, 0);
-
-  server.on("/", handleRoot);
-  server.on("/t16", []() {
-    stateNode = !stateNode;
-    digitalWrite(LED_NODE_PIN, stateNode ? HIGH : LOW);
-    server.sendHeader("Location", "/");
-    server.send(303);
-    oledNeedsUpdate = true;
-  });
-  server.on("/t4", []() {
-    stateBoard = !stateBoard;
-    digitalWrite(LED_BOARD_PIN, stateBoard ? LOW : HIGH);
-    server.sendHeader("Location", "/");
-    server.send(303);
-    oledNeedsUpdate = true;
-  });
-  server.on("/r1", []() {
-    targetToSend = 1;
-    server.sendHeader("Location", "/");
-    server.send(303);
-  });
-  server.on("/r2", []() {
-    targetToSend = 2;
-    server.sendHeader("Location", "/");
-    server.send(303);
-  });
-
-  server.begin();
-  oledNeedsUpdate = true;
+  Serial.println(F("System Initialized."));
 }
 
+unsigned long lastUpdate = 0;
+unsigned long lastFlash = 0;
+
 void loop() {
-  server.handleClient();
-  MDNS.update();
-
-  // 0. Feed GPS
+  // GPS Processing - CRITICAL: Must be as frequent as possible
   while (gpsSerial.available() > 0) {
-    if (gps.encode(gpsSerial.read())) {
-      oledNeedsUpdate = true;
+    gps.encode(gpsSerial.read());
+  }
+
+  // Blinking Logic
+  if (millis() - lastBlink > (eyeState ? blinkInterval : 150)) {
+    lastBlink = millis();
+    eyeState = !eyeState;
+    if (eyeState)
+      blinkInterval = random(2000, 6000); // Randomize next blink
+    draw();
+  }
+
+  // Flashing logic (every 500ms)
+  if (millis() - lastFlash > 500) {
+    lastFlash = millis();
+    flashState = !flashState;
+    if (!hasGPSFix)
+      draw(); // Redraw only if searching to see the flash
+  }
+
+  // Value Updates (every 1 second)
+  if (millis() - lastUpdate > 1000) {
+    lastUpdate = millis();
+
+    // Read Sensors
+    float h = dht.readHumidity();
+    float t = dht.readTemperature();
+
+    if (!isnan(h))
+      ui_hum = String((int)h);
+    if (!isnan(t))
+      ui_temp = String((int)t);
+
+    // Read GPS Time (Usually available before location fix)
+    if (gps.time.isValid() && gps.time.age() < 2000) {
+      char timeStr[10];
+      sprintf(timeStr, "%02d:%02d:%02d", gps.time.hour(), gps.time.minute(),
+              gps.time.second());
+      ui_time = String(timeStr);
+    } else {
+      ui_time = "00:00:00";
     }
-  }
 
-  // 1. Process Remote Command
-  if (targetToSend > 0) {
-    myCommand.targetID = targetToSend;
-    myCommand.command = 1;
-    esp_now_send(broadcastAddress, (uint8_t *)&myCommand, sizeof(myCommand));
-    targetToSend = 0; // Clear flag
-  }
+    // Read GPS Location
+    hasGPSFix = gps.location.isValid() && gps.location.age() < 5000;
+    if (hasGPSFix) {
+      ui_lat = String(gps.location.lat(), 2);
+      ui_lon = String(gps.location.lng(), 2);
+    } else {
+      ui_lat = "-0.00";
+      ui_lon = "-0.00";
+    }
 
-  // 2. Process OLED Update (Thread Safe)
-  if (oledNeedsUpdate) {
-    oledNeedsUpdate = false;
-    updateOLED();
+    Serial.printf("Temp: %s, Hum: %s, Sat: %d, Fix: %s, Time: %s\n",
+                  ui_temp.c_str(), ui_hum.c_str(), gps.satellites.value(),
+                  hasGPSFix ? "YES" : "NO", ui_time.c_str());
+
+    draw();
   }
 }
