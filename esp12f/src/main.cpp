@@ -2,13 +2,16 @@
 #include <Adafruit_GFX.h>
 #include <Adafruit_SSD1306.h>
 #include <Arduino.h>
+#include <ArduinoJson.h>
 #include <DHT.h>
 #include <EEPROM.h>
+#include <ESP8266HTTPClient.h>
 #include <ESP8266WebServer.h>
 #include <ESP8266WiFi.h>
 #include <ESP8266mDNS.h>
 #include <SoftwareSerial.h>
 #include <TinyGPSPlus.h>
+#include <WiFiClient.h>
 #include <Wire.h>
 
 ADC_MODE(ADC_VCC);
@@ -236,7 +239,8 @@ void setupWiFi() {
 
 // UI Bitmaps
 
-static const unsigned char PROGMEM image_Pin_star_bits[] = {0x92,0x54,0x38,0xfe,0x38,0x54,0x92};
+static const unsigned char PROGMEM image_Pin_star_bits[] = {
+    0x92, 0x54, 0x38, 0xfe, 0x38, 0x54, 0x92};
 static const unsigned char PROGMEM image_weather_humidity_bits[] = {
     0x04, 0x00, 0x04, 0x00, 0x0c, 0x00, 0x0e, 0x00, 0x1e, 0x00, 0x1f,
     0x00, 0x3f, 0x80, 0x3f, 0x80, 0x7e, 0xc0, 0x7f, 0x40, 0xff, 0x60,
@@ -316,10 +320,64 @@ static const unsigned char PROGMEM image_Battery_bits[] = {
     0xf0, 0x10, 0x08, 0x32, 0xa8, 0x32, 0xa8, 0x10, 0x08, 0x0f, 0xf0,
     0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
 
+static const unsigned char PROGMEM image_device_sleep_mode_black_bits[] = {
+    0x04, 0x00, 0x1c, 0x0e, 0x38, 0x02, 0x78, 0x04, 0x71, 0xee, 0xf0,
+    0x40, 0xf0, 0x80, 0xf1, 0xe0, 0xf8, 0x00, 0xf8, 0x06, 0x7e, 0x1c,
+    0x7f, 0xfc, 0x3f, 0xf8, 0x1f, 0xf0, 0x07, 0xc0, 0x00, 0x00};
+
 bool flashState = false;
 bool eyeState = true;
 unsigned long lastBlink = 0;
 unsigned long blinkInterval = 3000;
+
+// Weather Globals
+int weatherCode = -1;
+int isDay = 1;        // Default to day
+int currentHour = 12; // Default to noon (safe fallback)
+unsigned long lastWeatherUpdate = 0;
+const unsigned long weatherInterval = 900000; // 15 minutes
+
+void updateWeather() {
+  if (WiFi.status() == WL_CONNECTED &&
+      gps.location.isValid()) { // Use GPS location
+    WiFiClient client;
+    HTTPClient http;
+
+    // Open-Meteo Forecast API (using GPS coords)
+    String url = "http://api.open-meteo.com/v1/forecast?latitude=" +
+                 String(gps.location.lat(), 4) +
+                 "&longitude=" + String(gps.location.lng(), 4) +
+                 "&current=is_day,weather_code&timezone=auto";
+
+    // Uncomment for debugging
+    // Serial.println("Weather URL: " + url);
+
+    if (http.begin(client, url)) {
+      int httpCode = http.GET();
+      if (httpCode > 0) {
+        if (httpCode == HTTP_CODE_OK) {
+          String payload = http.getString();
+          // Use ArduinoJson to parse
+          JsonDocument doc; // Dynamic size handling in v7
+          DeserializationError error = deserializeJson(doc, payload);
+
+          if (!error) {
+            isDay = doc["current"]["is_day"];
+            weatherCode = doc["current"]["weather_code"];
+            Serial.printf("Weather Update: Code=%d isDay=%d\n", weatherCode,
+                          isDay);
+          } else {
+            Serial.print("JSON Error: ");
+            Serial.println(error.c_str());
+          }
+        }
+      } else {
+        Serial.printf("HTTP Error: %s\n", http.errorToString(httpCode).c_str());
+      }
+      http.end();
+    }
+  }
+}
 
 // Helper: Draw GPS signal bars at position
 void drawGPSBars(int x, int y) {
@@ -461,13 +519,25 @@ void draw(void) {
   }
 
   // Dynamic Weather Icon
-  int hum = ui_hum.toInt();
-  if (hum > 70) {
-    display.drawBitmap(8, 0, image_weather_cloud_rain_bits, 17, 16, 1);
-  } else if (hum > 50) {
-    display.drawBitmap(8, 0, image_weather_cloud_sunny_bits, 17, 16, 1);
+  // Dynamic Weather Icon & Night Mode
+  if (isDay == 0) {
+    // Night Mode (Sleep Icon)
+    display.drawBitmap(8, 0, image_device_sleep_mode_black_bits, 16, 16, 1);
   } else {
-    display.drawBitmap(8, 0, image_weather_sun_bits, 15, 16, 1);
+    // Day Mode - Weather Condition
+    if (weatherCode >= 95) { // Thunderstorm
+      display.drawBitmap(8, 0, image_weather_cloud_lightning_bolt_bits, 17, 16,
+                         1);
+    } else if (weatherCode >= 51) { // Rain / Drizzle
+      display.drawBitmap(8, 0, image_weather_cloud_rain_bits, 17, 16, 1);
+    } else if (weatherCode >= 1 && weatherCode <= 3) { // Cloud/Partly Cloudy
+      display.drawBitmap(8, 0, image_weather_cloud_sunny_bits, 17, 16, 1);
+    } else if (weatherCode == 0) { // Clear Sky
+      display.drawBitmap(8, 0, image_weather_sun_bits, 15, 16, 1);
+    } else {
+      // Default or unknown (e.g. Fog 45/48) -> Sunny Cloud as fallback
+      display.drawBitmap(8, 0, image_weather_cloud_sunny_bits, 17, 16, 1);
+    }
   }
 
   // Animated Face
@@ -669,13 +739,22 @@ void loop() {
 
     // GPS Time (UTC-3 Brasília)
     if (gps.time.isValid() && gps.time.age() < 2000) {
-      int hour = (gps.time.hour() - 3 + 24) % 24; // UTC-3
+      currentHour = (gps.time.hour() - 3 + 24) % 24; // UTC-3
       char timeStr[12];
-      snprintf(timeStr, sizeof(timeStr), "%02d:%02d:%02d", hour,
+      snprintf(timeStr, sizeof(timeStr), "%02d:%02d:%02d", currentHour,
                gps.time.minute(), gps.time.second());
       ui_time = String(timeStr);
     } else {
       ui_time = "00:00:00";
+    }
+
+    // Determine isDay based on Time if API hasn't set it (or as a fallback)
+    if (weatherCode == -1) {
+      if (currentHour >= 6 && currentHour < 18) {
+        isDay = 1; // Day
+      } else {
+        isDay = 0; // Night
+      }
     }
 
     // GPS Date
@@ -742,11 +821,20 @@ void loop() {
     if (currentFace != FACE_LOOK)
       lookActive = false;
 
-    Serial.printf("Face:%d Bat:%d(%dmV) WiFi:%s Sat:%d T:%s\n", currentFace,
-                  batteryLevel, vcc,
+    Serial.printf("Face:%d Bat:%d(%dmV) WiFi:%s Sat:%d T:%s WCode:%d Day:%d\n",
+                  currentFace, batteryLevel, vcc,
                   wifiConnected ? "OK" : (apMode ? "AP" : "X"), sats,
-                  ui_time.c_str());
+                  ui_time.c_str(), weatherCode, isDay);
 
     draw();
+  }
+
+  // Periodic Weather Update
+  if (now - lastWeatherUpdate > weatherInterval || lastWeatherUpdate == 0) {
+    if (wifiConnected && hasGPSFix &&
+        noFixSince > 0) { // Only update if connected and we have/had a fix
+      updateWeather();
+      lastWeatherUpdate = now;
+    }
   }
 }
