@@ -236,7 +236,8 @@ void setupWiFi() {
 
 // UI Bitmaps
 
-static const unsigned char PROGMEM image_Pin_star_bits[] = {0x92,0x54,0x38,0xfe,0x38,0x54,0x92};
+static const unsigned char PROGMEM image_Pin_star_bits[] = {
+    0x92, 0x54, 0x38, 0xfe, 0x38, 0x54, 0x92};
 static const unsigned char PROGMEM image_weather_humidity_bits[] = {
     0x04, 0x00, 0x04, 0x00, 0x0c, 0x00, 0x0e, 0x00, 0x1e, 0x00, 0x1f,
     0x00, 0x3f, 0x80, 0x3f, 0x80, 0x7e, 0xc0, 0x7f, 0x40, 0xff, 0x60,
@@ -448,7 +449,8 @@ void draw(void) {
   //}
   // Pin_star (LED indicator - only visible when LED is on)
   if (ledState) {
-    display.drawBitmap(104, 0, image_Pin_star_bits, 7, 7, 1);
+    display.fillRect(104, 1, 7, 7, 1);
+    display.drawBitmap(104, 1, image_Pin_star_bits, 7, 7, 0);
   }
   // BLE Beacon (blinks when WiFi not connected)
   if (wifiConnected || iconBlinkState) {
