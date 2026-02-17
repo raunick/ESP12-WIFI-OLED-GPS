@@ -98,23 +98,190 @@ void writeEEPROM(int addr, String data, int maxLen) {
   }
   EEPROM.commit();
 }
-
-// Captive Portal HTML
+// Captive Portal HTML (Turbinado)
 const char PORTAL_HTML[] PROGMEM = R"rawliteral(
-<!DOCTYPE html><html><head><meta name='viewport' content='width=device-width,initial-scale=1'>
-<style>body{font-family:sans-serif;background:#1a1a2e;color:#eee;display:flex;justify-content:center;align-items:center;height:100vh;margin:0}
-.card{background:#16213e;padding:30px;border-radius:12px;width:280px;box-shadow:0 8px 32px rgba(0,0,0,.5)}
-h2{margin:0 0 20px;text-align:center;color:#0ff}
-input{width:100%;padding:10px;margin:8px 0;border:1px solid #333;border-radius:6px;background:#0f3460;color:#eee;box-sizing:border-box}
-button{width:100%;padding:12px;margin-top:12px;border:none;border-radius:6px;background:#e94560;color:#fff;font-size:16px;cursor:pointer}
-button:hover{background:#ff6b6b}</style></head>
-<body><div class='card'><h2>ESP12F WiFi</h2>
-<form action='/save' method='POST'>
-<input name='ssid' placeholder='SSID' required>
-<input name='pass' type='password' placeholder='Senha' required>
-<button type='submit'>Conectar</button></form></div></body></html>)rawliteral";
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset='UTF-8'>
+  <meta name='viewport' content='width=device-width,initial-scale=1'>
+  <title>ESP12F Setup</title>
+  <style>
+    :root { --primary: #00f3ff; --accent: #bc13fe; --bg-dark: #0f172a; --card-bg: #1e293b; }
+    body { font-family: 'Segoe UI', sans-serif; background: var(--bg-dark); color: #e2e8f0; display: flex; justify-content: center; align-items: center; min-height: 100vh; margin: 0; overflow: hidden; }
+    .card { background: var(--card-bg); padding: 40px; border-radius: 20px; width: 320px; box-shadow: 0 0 30px rgba(0, 243, 255, 0.1); position: relative; border: 1px solid rgba(255,255,255,0.05); }
+    h2 { margin: 0 0 25px; text-align: center; font-weight: 300; letter-spacing: 2px; text-transform: uppercase; background: linear-gradient(to right, var(--primary), var(--accent)); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
+    input { width: 100%; padding: 14px; margin: 10px 0; border: 2px solid #334155; border-radius: 8px; background: #0f172a; color: #fff; box-sizing: border-box; transition: 0.3s; }
+    input:focus { border-color: var(--primary); outline: none; box-shadow: 0 0 10px rgba(0, 243, 255, 0.3); }
+    .checkbox-container { display: flex; align-items: center; font-size: 0.85rem; color: #94a3b8; margin: 5px 0 15px; cursor: pointer; }
+    .checkbox-container input { width: auto; margin-right: 8px; cursor: pointer; }
+    button { width: 100%; padding: 14px; border: none; border-radius: 8px; background: linear-gradient(135deg, var(--primary), var(--accent)); color: #fff; font-size: 16px; font-weight: bold; cursor: pointer; transition: transform 0.2s, box-shadow 0.2s; text-transform: uppercase; letter-spacing: 1px; }
+    button:hover { transform: translateY(-2px); box-shadow: 0 5px 20px rgba(0, 243, 255, 0.4); }
+    button:active { transform: scale(0.98); }
+    .footer { text-align: center; margin-top: 20px; font-size: 0.75rem; opacity: 0.5; }
+  </style>
+</head>
+<body>
+  <div class='card'>
+    <h2>WiFi Config</h2>
+    <form action='/save' method='POST'>
+      <input name='ssid' placeholder='Nome da Rede (SSID)' required>
+      <input name='pass' id='passInput' type='password' placeholder='Senha' required>
+      <label class='checkbox-container'>
+        <input type='checkbox' onchange="document.getElementById('passInput').type = this.checked ? 'text' : 'password'"> Mostrar Senha
+      </label>
+      <button type='submit'>Conectar</button>
+    </form>
+    <div class='footer'>ESP12F Smart System</div>
+  </div>
+</body>
+</html>)rawliteral";
 
-// WiFi Setup
+// Dashboard HTML (Moderno com AJAX)
+const char DASHBOARD_HTML[] PROGMEM = R"rawliteral(
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ESP12F Dashboard</title>
+  <style>
+    :root { --primary: #00f3ff; --accent: #bc13fe; --bg-dark: #0f172a; --card-bg: #1e293b; --text-main: #e2e8f0; --text-muted: #94a3b8; }
+    body { font-family: 'Segoe UI', sans-serif; background: var(--bg-dark); color: var(--text-main); margin: 0; padding: 20px; display: flex; justify-content: center; min-height: 100vh; }
+    .container { width: 100%; max-width: 400px; }
+    .header { text-align: center; margin-bottom: 30px; }
+    .header h1 { margin: 0; font-size: 1.5rem; letter-spacing: 3px; text-transform: uppercase; background: linear-gradient(to right, var(--primary), var(--accent)); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
+    
+    .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 15px; }
+    .card { background: var(--card-bg); padding: 15px; border-radius: 15px; border: 1px solid rgba(255,255,255,0.05); box-shadow: 0 4px 15px rgba(0,0,0,0.2); display: flex; flex-direction: column; justify-content: space-between; transition: transform 0.2s; }
+    .card:hover { transform: translateY(-2px); }
+    
+    .icon { width: 24px; height: 24px; fill: var(--primary); margin-bottom: 10px; }
+    .label { font-size: 0.75rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 1px; margin-bottom: 5px; }
+    .value { font-size: 1.4rem; font-weight: bold; color: var(--text-main); }
+    .value.highlight { color: var(--primary); text-shadow: 0 0 10px rgba(0, 243, 255, 0.4); }
+
+    .card-full { grid-column: span 2; }
+    .btn-led { width: 100%; padding: 16px; border: none; border-radius: 12px; background: linear-gradient(135deg, #334155, #1e293b); color: var(--text-muted); font-size: 1rem; font-weight: bold; cursor: pointer; transition: all 0.3s; display: flex; align-items: center; justify-content: center; gap: 10px; border: 1px solid rgba(255,255,255,0.05); margin-top: 15px; }
+    .btn-led.active { background: linear-gradient(135deg, var(--primary), var(--accent)); color: #fff; box-shadow: 0 0 20px rgba(0, 243, 255, 0.4); }
+    
+    .status-dot { width: 10px; height: 10px; border-radius: 50%; background: #ef4444; transition: background 0.3s; }
+    .status-dot.fixed { background: #22c55e; box-shadow: 0 0 10px #22c55e; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="header">
+      <h1>ESP12F Monitor</h1>
+    </div>
+    
+    <div class="grid">
+      <!-- Temperatura -->
+      <div class="card">
+        <div>
+          <svg class="icon" viewBox="0 0 24 24"><path d="M15 13V5a3 3 0 0 0-6 0v8a5 5 0 1 0 6 0m-3-9a1 1 0 0 1 1 1v3h-2V5a1 1 0 0 1 1-1z"/></svg>
+          <div class="label">Temperatura</div>
+        </div>
+        <div class="value highlight" id="temp">--°C</div>
+      </div>
+
+      <!-- Umidade -->
+      <div class="card">
+        <div>
+          <svg class="icon" viewBox="0 0 24 24"><path d="M12 2.69l5.66 5.66a8 8 0 1 1-11.31 0zm0 2.83L8.49 9.17a5 5 0 1 0 7.02 0z"/></svg>
+          <div class="label">Umidade</div>
+        </div>
+        <div class="value" id="hum">--%</div>
+      </div>
+
+      <!-- Data/Hora -->
+      <div class="card card-full" style="flex-direction: row; justify-content: space-between; align-items: center;">
+        <div>
+          <div class="label">Data</div>
+          <div class="value" id="date" style="font-size: 1.1rem">--</div>
+        </div>
+        <div style="text-align: right">
+          <div class="label">Hora</div>
+          <div class="value highlight" id="time" style="font-size: 1.1rem">--:--</div>
+        </div>
+      </div>
+
+      <!-- GPS -->
+      <div class="card card-full">
+        <div style="display: flex; justify-content: space-between; align-items: center;">
+          <div>
+            <div class="label">Localização</div>
+            <div class="value" id="coords" style="font-size: 0.9rem">Lat: --, Lon: --</div>
+          </div>
+          <div style="display: flex; align-items: center; gap: 8px;">
+            <span class="label" id="gpsLabel">No Fix</span>
+            <div class="status-dot" id="gpsDot"></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- LED Control -->
+      <div class="card card-full" style="background: transparent; border: none; box-shadow: none; padding: 0;">
+        <button class="btn-led" id="btnLed" onclick="toggleLed()">
+          <svg style="width:20px; height:20px; fill:currentColor;" viewBox="0 0 24 24"><path d="M9 21c0 .5.4 1 1 1h4c.6 0 1-.5 1-1v-1H9v1zm3-19C8.1 2 5 5.1 5 9c0 2.4 1.2 4.5 3 5.7V17c0 .5.4 1 1 1h6c.6 0 1-.5 1-1v-2.3c1.8-1.3 3-3.4 3-5.7 0-3.9-3.1-7-7-7z"/></svg>
+          <span id="btnText">Ligar LED</span>
+        </button>
+      </div>
+    </div>
+  </div>
+
+<script>
+  function updateData() {
+    fetch('/data')
+      .then(response => response.json())
+      .then(data => {
+        document.getElementById('temp').innerText = data.temp + '°C';
+        document.getElementById('hum').innerText = data.hum + '%';
+        document.getElementById('time').innerText = data.time;
+        document.getElementById('date').innerText = data.date;
+        document.getElementById('coords').innerText = 'Lat: ' + data.lat + ', Lon: ' + data.lon;
+        
+        const dot = document.getElementById('gpsDot');
+        const label = document.getElementById('gpsLabel');
+        if(data.gps == 1) {
+          dot.classList.add('fixed');
+          label.innerText = 'Fix OK';
+        } else {
+          dot.classList.remove('fixed');
+          label.innerText = 'Searching...';
+        }
+        
+        updateButton(data.led);
+      })
+      .catch(err => console.log('Erro ao atualizar', err));
+  }
+
+  function updateButton(state) {
+    const btn = document.getElementById('btnLed');
+    const txt = document.getElementById('btnText');
+    if(state == 1) {
+      btn.classList.add('active');
+      txt.innerText = 'LED Ligado';
+    } else {
+      btn.classList.remove('active');
+      txt.innerText = 'LED Desligado';
+    }
+  }
+
+  function toggleLed() {
+    fetch('/led')
+      .then(response => response.json())
+      .then(data => updateButton(data.led));
+  }
+
+  // Atualiza a cada 3 segundos
+  setInterval(updateData, 3000);
+  updateData(); // Chamada inicial
+</script>
+</body>
+</html>)rawliteral";
+
+// WiFi Setup (Atualizado)
 void setupWiFi() {
   EEPROM.begin(EEPROM_SIZE);
   String ssid = readEEPROM(SSID_ADDR, SSID_MAX);
@@ -137,65 +304,38 @@ void setupWiFi() {
       apMode = false;
       Serial.printf("\nWiFi OK! IP: %s\n", WiFi.localIP().toString().c_str());
 
-      // Start mDNS
       if (MDNS.begin("12f")) {
         Serial.println(F("mDNS: http://12f.local"));
       }
 
-      // Dashboard
+      // --- ROTA: Dashboard Principal ---
       server.on("/", []() {
-        String html =
-            F("<!DOCTYPE html><html><head><meta name='viewport' "
-              "content='width=device-width,initial-scale=1'>"
-              "<meta http-equiv='refresh' content='5'>"
-              "<style>body{font-family:sans-serif;background:#1a1a2e;color:#"
-              "eee;display:flex;justify-content:center;padding:20px;margin:0}"
-              ".card{background:#16213e;padding:24px;border-radius:12px;width:"
-              "300px;box-shadow:0 8px 32px rgba(0,0,0,.5)}"
-              "h2{margin:0 0 16px;text-align:center;color:#0ff}"
-              ".row{display:flex;justify-content:space-between;padding:8px "
-              "0;border-bottom:1px solid #333}"
-              ".label{color:#888}.val{color:#0ff;font-weight:bold}"
-              "a.btn{display:block;text-align:center;padding:14px;margin-top:"
-              "16px;border-radius:8px;text-decoration:none;font-size:16px;font-"
-              "weight:bold}"
-              ".on{background:#e94560;color:#fff}.off{background:#0f3460;color:"
-              "#0ff}</style></head>"
-              "<body><div class='card'><h2>ESP12F</h2>");
-        html += "<div class='row'><span class='label'>Temp</span><span "
-                "class='val'>" +
-                ui_temp + "&deg;C</span></div>";
-        html += "<div class='row'><span class='label'>Umid</span><span "
-                "class='val'>" +
-                ui_hum + "%</span></div>";
-        html += "<div class='row'><span class='label'>Hora</span><span "
-                "class='val'>" +
-                ui_time + "</span></div>";
-        html += "<div class='row'><span class='label'>Data</span><span "
-                "class='val'>" +
-                ui_date + "</span></div>";
-        html += "<div class='row'><span class='label'>Lat</span><span "
-                "class='val'>" +
-                ui_lat + "</span></div>";
-        html += "<div class='row'><span class='label'>Lon</span><span "
-                "class='val'>" +
-                ui_lon + "</span></div>";
-        html += "<div class='row'><span class='label'>GPS</span><span "
-                "class='val'>" +
-                String(hasGPSFix ? "Fix" : "...") + "</span></div>";
-        html += "<a class='btn " + String(ledState ? "on" : "off") +
-                "' href='/led'>LED: " + String(ledState ? "ON" : "OFF") +
-                "</a>";
-        html += F("</div></body></html>");
-        server.send(200, "text/html", html);
+        server.send_P(200, "text/html", DASHBOARD_HTML);
       });
 
-      // LED toggle
+      // --- ROTA: API de Dados (JSON) ---
+      server.on("/data", []() {
+        String json = "{";
+        json += "\"temp\":\"" + ui_temp + "\",";
+        json += "\"hum\":\"" + ui_hum + "\",";
+        json += "\"time\":\"" + ui_time + "\",";
+        json += "\"date\":\"" + ui_date + "\",";
+        json += "\"lat\":\"" + ui_lat + "\",";
+        json += "\"lon\":\"" + ui_lon + "\",";
+        json += "\"gps\":\"" + String(hasGPSFix ? "1" : "0") + "\",";
+        json += "\"led\":" + String(ledState ? "1" : "0");
+        json += "}";
+        server.send(200, "application/json", json);
+      });
+
+      // --- ROTA: Toggle LED (API) ---
       server.on("/led", []() {
         ledState = !ledState;
         digitalWrite(LED_BOARD, ledState ? LOW : HIGH);
-        server.sendHeader("Location", "/");
-        server.send(302);
+        
+        // Retorna JSON ao invés de redirect para o JS processar
+        String json = "{\"led\":" + String(ledState ? "1" : "0") + "}";
+        server.send(200, "application/json", json);
       });
 
       server.begin();
@@ -204,7 +344,7 @@ void setupWiFi() {
     Serial.println("\nWiFi: Connection failed.");
   }
 
-  // Start AP mode
+  // --- MODO AP (Captive Portal) ---
   apMode = true;
   wifiConnected = false;
   WiFi.mode(WIFI_AP);
@@ -218,20 +358,20 @@ void setupWiFi() {
     String pass = server.arg("pass");
     writeEEPROM(SSID_ADDR, ssid, SSID_MAX);
     writeEEPROM(PASS_ADDR, pass, PASS_MAX);
-    server.send(
-        200, "text/html",
-        "<h2 style='color:#0f0;text-align:center'>Salvo! Reiniciando...</h2>");
+    
+    // Página de sucesso simples
+    String html = F("<!DOCTYPE html><html><head><style>body{background:#0f172a;color:#fff;font-family:sans-serif;display:flex;justify-content:center;align-items:center;height:100vh;text-align:center}h2{color:#00f3ff}</style></head><body><div><h2>Salvo!</h2><p>Reiniciando...</p></div></body></html>");
+    server.send(200, "text/html", html);
+    
     delay(1500);
     ESP.restart();
   });
 
+  // Mantém controle de LED no modo AP se precisar
   server.on("/led", []() {
     ledState = !ledState;
     digitalWrite(LED_BOARD, ledState ? LOW : HIGH);
-    server.send(200, "text/html",
-                ledState
-                    ? "<h2 style='color:#0f0;text-align:center'>LED ON</h2>"
-                    : "<h2 style='color:#f00;text-align:center'>LED OFF</h2>");
+    server.send(200, "text/html", ledState ? "<h1>ON</h1>" : "<h1>OFF</h1>");
   });
 
   server.begin();
