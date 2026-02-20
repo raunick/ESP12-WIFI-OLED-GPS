@@ -14,7 +14,7 @@
 ===================================================================
 ```
 
-# Itaigara Clinic System - Backend & Consumidores
+# Sistema Clínica Itaigara - Backend & Consumidores
 
 Bem-vindo à documentação oficial do ecossistema de testes do Itaigara Clinic System. 
 
