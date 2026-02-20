@@ -10,12 +10,16 @@ import (
 	"strings"
 	"time"
 
+	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 )
 
 var (
-	apiClient *LaudosClient
+	apiClient        *LaudosClient
+	appConfig        Config
+	webServerStarted bool
+
 	// Estilos do Bubbletea
 	titleStyle = lipgloss.NewStyle().
 			Bold(true).
@@ -116,15 +120,36 @@ func startHTTPServer() {
 	}
 }
 
+func initApp() {
+	apiClient = NewLaudosClient(appConfig.BaseURL, appConfig.ClientID, appConfig.ClientSecret)
+	if !webServerStarted {
+		webServerStarted = true
+		go startHTTPServer()
+	}
+}
+
 // --- BubbleTea TUI ---
 
+type appState int
+
+const (
+	stateConfig appState = iota
+	stateSearch
+)
+
 type model struct {
-	cpfInput    string
-	loading     bool
-	laudos      []Laudo
-	err         error
-	searched    bool
-	serverReady bool
+	state appState
+
+	// Config state
+	inputs  []textinput.Model
+	focused int
+
+	// Search state
+	cpfInput string
+	loading  bool
+	laudos   []Laudo
+	err      error
+	searched bool
 }
 
 type laudosMsg struct {
@@ -133,18 +158,54 @@ type laudosMsg struct {
 }
 
 func initialModel() model {
-	return model{
+	m := model{
+		state:    stateSearch,
 		cpfInput: "",
 		loading:  false,
 	}
+
+	cfg, err := LoadConfig()
+	if err != nil || cfg.BaseURL == "" || cfg.ClientID == "" || cfg.ClientSecret == "" {
+		m.state = stateConfig
+		m.inputs = make([]textinput.Model, 3)
+
+		var t textinput.Model
+		for i := range m.inputs {
+			t = textinput.New()
+			t.CharLimit = 150
+
+			switch i {
+			case 0:
+				t.Placeholder = "Base URL (ex: http://localhost:8000)"
+				t.Focus()
+				t.PromptStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#10B981"))
+				t.TextStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#10B981"))
+				if cfg.BaseURL != "" {
+					t.SetValue(cfg.BaseURL)
+				}
+			case 1:
+				t.Placeholder = "Client ID"
+				if cfg.ClientID != "" {
+					t.SetValue(cfg.ClientID)
+				}
+			case 2:
+				t.Placeholder = "Client Secret"
+				if cfg.ClientSecret != "" {
+					t.SetValue(cfg.ClientSecret)
+				}
+			}
+			m.inputs[i] = t
+		}
+	} else {
+		appConfig = cfg
+		initApp()
+	}
+
+	return m
 }
 
 func (m model) Init() tea.Cmd {
-	return tea.Batch(
-		tea.Tick(time.Second, func(t time.Time) tea.Msg {
-			return nil // Apenas pra forçar renderização inicial rápida
-		}),
-	)
+	return textinput.Blink
 }
 
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -153,6 +214,78 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		switch msg.Type {
 		case tea.KeyCtrlC, tea.KeyEsc:
 			return m, tea.Quit
+		}
+	}
+
+	if m.state == stateConfig {
+		return updateConfig(m, msg)
+	}
+	return updateSearch(m, msg)
+}
+
+func updateConfig(m model, msg tea.Msg) (tea.Model, tea.Cmd) {
+	switch msg := msg.(type) {
+	case tea.KeyMsg:
+		switch msg.Type {
+		case tea.KeyEnter, tea.KeyUp, tea.KeyDown:
+			s := msg.String()
+
+			// Se enter no último campo, tenta salvar config e iniciar app
+			if s == "enter" && m.focused == len(m.inputs)-1 {
+				appConfig = Config{
+					BaseURL:      m.inputs[0].Value(),
+					ClientID:     m.inputs[1].Value(),
+					ClientSecret: m.inputs[2].Value(),
+				}
+				SaveConfig(appConfig)
+				initApp()
+				m.state = stateSearch
+				// Pequeno delay fake para UX
+				time.Sleep(500 * time.Millisecond)
+				return m, nil
+			}
+
+			// Navegação entre campos
+			if s == "up" {
+				m.focused--
+			} else {
+				m.focused++
+			}
+
+			if m.focused > len(m.inputs)-1 {
+				m.focused = 0
+			} else if m.focused < 0 {
+				m.focused = len(m.inputs) - 1
+			}
+
+			cmds := make([]tea.Cmd, len(m.inputs))
+			for i := 0; i <= len(m.inputs)-1; i++ {
+				if i == m.focused {
+					cmds[i] = m.inputs[i].Focus()
+					m.inputs[i].PromptStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#10B981"))
+					m.inputs[i].TextStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#10B981"))
+				} else {
+					m.inputs[i].Blur()
+					m.inputs[i].PromptStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#6B7280"))
+					m.inputs[i].TextStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#6B7280"))
+				}
+			}
+			return m, tea.Batch(cmds...)
+		}
+	}
+
+	// Update the focused text input
+	cmds := make([]tea.Cmd, len(m.inputs))
+	for i := range m.inputs {
+		m.inputs[i], cmds[i] = m.inputs[i].Update(msg)
+	}
+	return m, tea.Batch(cmds...)
+}
+
+func updateSearch(m model, msg tea.Msg) (tea.Model, tea.Cmd) {
+	switch msg := msg.(type) {
+	case tea.KeyMsg:
+		switch msg.Type {
 		case tea.KeyBackspace:
 			if len(m.cpfInput) > 0 {
 				m.cpfInput = m.cpfInput[:len(m.cpfInput)-1]
@@ -188,7 +321,23 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-func (m model) View() string {
+func viewConfig(m model) string {
+	var b strings.Builder
+	b.WriteString(titleStyle.Render(" ITAIGARA CLINIC SYSTEM - Initial Setup "))
+	b.WriteString("\n\nNenhuma configuração encontrada ou configuração incompleta.\nPor favor, preencha as credenciais da API.\n\n")
+
+	for i := range m.inputs {
+		b.WriteString(m.inputs[i].View())
+		if i < len(m.inputs)-1 {
+			b.WriteRune('\n')
+		}
+	}
+
+	b.WriteString("\n\n" + lipgloss.NewStyle().Foreground(lipgloss.Color("#6B7280")).Render("(Use ↑/↓ para navegar e ENTER no último campo para salvar e avançar)"))
+	return b.String()
+}
+
+func viewSearch(m model) string {
 	var b strings.Builder
 
 	b.WriteString(titleStyle.Render(" ITAIGARA CLINIC SYSTEM - Consumidor TUI "))
@@ -231,24 +380,17 @@ func (m model) View() string {
 	return b.String()
 }
 
+func (m model) View() string {
+	if m.state == stateConfig {
+		return viewConfig(m)
+	}
+	return viewSearch(m)
+}
+
 func main() {
-	// 1. Inicializa o cliente HTTP interno que conversa com o FastAPI
-	apiClient = NewLaudosClient(
-		"http://localhost:8000",
-		"A8iSuj9dX0aIcp50ENpCT7DIcl9N0ZFj",
-		"a^zcBXi<w<,V1ml?)vOpLgQ$Pp<t>*uOOl9WV",
-	)
-
-	// 2. Inicia o servidor Web numa goroutine para rodar em backgorund
-	go startHTTPServer()
-
-	// 3. Aguarda 1 segundinho pra dar tempo do print do log web aparecer antes do TUI
-	time.Sleep(500 * time.Millisecond)
-
-	// 4. Inicia a interface rica no Terminal
 	p := tea.NewProgram(initialModel(), tea.WithAltScreen())
 	if _, err := p.Run(); err != nil {
-		fmt.Printf("Erro ao iniciar interface TUI: %v", err)
+		fmt.Printf("Erro ao iniciar interface TUI: %v\n", err)
 		os.Exit(1)
 	}
 }
