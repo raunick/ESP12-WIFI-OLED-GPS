@@ -1,0 +1,120 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Consulta de Laudos</title>
+    <!-- TailwindCSS via CDN conforme solicitado -->
+    <script src="https://cdn.tailwindcss.com"></script>
+</head>
+
+<body class="bg-gray-100 min-h-screen font-sans antialiased text-gray-900">
+
+    <div class="max-w-4xl mx-auto py-10 px-4 sm:px-6 lg:px-8">
+
+        <!-- Header -->
+        <div class="bg-white shadow overflow-hidden sm:rounded-lg mb-8">
+            <div class="px-4 py-5 sm:px-6 flex justify-between items-center">
+                <div>
+                    <h3 class="text-lg leading-6 font-medium text-gray-900">
+                        Resultados de Exames
+                    </h3>
+                    <p class="mt-1 max-w-2xl text-sm text-gray-500">
+                        Visualização dos laudos encontrados para o CPF informado.
+                    </p>
+                </div>
+                <!-- Nova Busca -->
+                <form action="/buscar" method="GET" class="flex gap-2">
+                    <input type="text" name="cpf" placeholder="Digite outro CPF..." required
+                        class="shadow-sm focus:ring-blue-500 focus:border-blue-500 block w-full sm:text-sm border-gray-300 rounded-md py-2 px-3 border border-gray-300">
+                    <button type="submit"
+                        class="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500">
+                        Buscar
+                    </button>
+                </form>
+            </div>
+        </div>
+
+        <!-- Conteúdo Principal -->
+        {{if .Error}}
+        <div class="rounded-md bg-red-50 p-4 mb-8">
+            <div class="flex">
+                <div class="flex-shrink-0">
+                    <svg class="h-5 w-5 text-red-400" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20"
+                        fill="currentColor">
+                        <path fill-rule="evenodd"
+                            d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z"
+                            clip-rule="evenodd" />
+                    </svg>
+                </div>
+                <div class="ml-3">
+                    <h3 class="text-sm font-medium text-red-800">Erro na consulta</h3>
+                    <div class="mt-2 text-sm text-red-700">
+                        <p>{{.Error}}</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+        {{else}}
+        {{if eq (len .Laudos) 0}}
+        <div class="text-center py-12 bg-white rounded-lg shadow">
+            <svg class="mx-auto h-12 w-12 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                    d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+            </svg>
+            <h3 class="mt-2 text-sm font-medium text-gray-900">Nenhum laudo encontrado</h3>
+            <p class="mt-1 text-sm text-gray-500">Não existem registros para o CPF fornecido.</p>
+        </div>
+        {{else}}
+        <!-- Dados do Paciente (usando o primeiro registro) -->
+        <div class="bg-white shadow overflow-hidden sm:rounded-lg mb-8">
+            <div class="px-4 py-5 sm:p-6">
+                <dl class="grid grid-cols-1 gap-x-4 gap-y-8 sm:grid-cols-2">
+                    <div class="sm:col-span-1">
+                        <dt class="text-sm font-medium text-gray-500">Paciente</dt>
+                        <dd class="mt-1 text-sm text-gray-900 font-semibold">{{(index .Laudos 0).NmPessoa}}</dd>
+                    </div>
+                    <div class="sm:col-span-1">
+                        <dt class="text-sm font-medium text-gray-500">CPF</dt>
+                        <dd class="mt-1 text-sm text-gray-900 font-semibold">{{(index .Laudos 0).NrCpf}}</dd>
+                    </div>
+                </dl>
+            </div>
+        </div>
+
+        <!-- Lista de Laudos -->
+        <div class="bg-white shadow overflow-hidden sm:rounded-md">
+            <ul role="list" class="divide-y divide-gray-200">
+                {{range .Laudos}}
+                <li>
+                    <a href="/laudo?cpf={{(index $.Laudos 0).NrCpf}}&accession={{.AccessionNumber}}" target="_blank"
+                        class="block hover:bg-gray-50 p-4 sm:px-6 cursor-pointer">
+                        <div class="flex items-center justify-between">
+                            <div class="flex items-center">
+                                <div class="flex flex-col">
+                                    <p class="text-sm font-medium text-blue-600 truncate">{{.Tipo}}</p>
+                                    <p class="text-sm text-gray-500">{{.Descricao}}</p>
+                                </div>
+                            </div>
+                            <div class="ml-2 flex-shrink-0 flex flex-col items-end">
+                                <p
+                                    class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-green-100 text-green-800">
+                                    {{.Data}}
+                                </p>
+                                <p class="mt-2 text-sm text-gray-500">
+                                    Acesso: <span class="font-mono text-gray-800">{{.AccessionNumber}}</span>
+                                </p>
+                            </div>
+                        </div>
+                    </a>
+                </li>
+                {{end}}
+            </ul>
+        </div>
+        {{end}}
+        {{end}}
+    </div>
+</body>
+
+</html>
