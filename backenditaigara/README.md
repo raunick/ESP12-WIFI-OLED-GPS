@@ -1,3 +1,19 @@
+```text
+  ___ _        _                         ____ _ _       _        
+ |_ _| |_ __ _(_)__ _ __ _ _ _ __ _     / ___| (_)_ __ (_) ___   
+  | ||  _/ _` | / _` / _` | '_/ _` |   | |   | | | '_ \| |/ __|  
+ |___|\__\__,_|_\__, \__,_|_| \__,_|   | |___| | | | | | | (__   
+                |___/                   \____|_|_|_| |_|_|\___|  
+                                                                 
+  ____                                   _     _                 
+ / ___|___  _ __  ___ _   _ _ __ ___ (_) __| | ___  _ __       
+| |   / _ \| '_ \/ __| | | | '_ ` _ \| |/ _` |/ _ \| '__|      
+| |__| (_) | | | \__ \ |_| | | | | | | | (_| | (_) | |         
+ \____\___/|_| |_|___/\__,_|_| |_| |_|_|\__,_|\___/|_|         
+
+===================================================================
+```
+
 # Itaigara Clinic System - Backend & Consumidores
 
 Bem-vindo à documentação oficial do ecossistema de testes do Itaigara Clinic System. 
@@ -6,19 +22,49 @@ Este repositório é composto por **três aplicações independentes** criadas p
 
 ---
 
-## 🏗️ Visão Geral da Arquitetura
+## 🏗️ Visão Geral da Arquitetura & Fluxo (Mermaid diagram)
 
-1. **API Mock (`/api-mock`)**
-   - **Framework:** FastAPI (Python)
-   - **Papel:** Simula um backend legado hospitalar provendo autenticação OAuth2 e listagem de exames e laudos a partir de um pseudo banco-de-dados local.
+O diagrama abaixo ilustra todo o caminho percorrido desde o momento que o usuário acessa o link, até a autenticação invisível (M2M) e a devolução do PDF em tela:
 
-2. **Consumidor em Go (`/consumidor-go`)**
-   - **Framework:** Go Nativo + Bubbletea + html/template
-   - **Papel:** Apresenta uma tela interativa pelo terminal e, ao mesmo tempo, inicializa um servidor Frontend leve de fundo (`http://localhost:8080`) capaz de processar PDFs em memória. Possui gerenciador de estado (`config.json`) para persistência de credenciais OAuth2.
+```mermaid
+sequenceDiagram
+    autonumber
+    actor User as Usuário
+    participant Web as Navegador
+    participant Go as Consumidor Go / Python
+    participant Mock as API Itaigara (Mock)
 
-3. **Consumidor em Python (`/consumidor-python`)**
-   - **Framework:** FastAPI + Jinja2 + Requests
-   - **Papel:** Alternativa ao consumidor em Go e prova-de-conceito construída em Python demonstrando a mesma funcionalidade TUI de carregamento e leitura de PDF via web e CLI (`http://localhost:8081`).
+    User->>Web: Acessa http://LAUDOS:8080/buscar?cpf=12345678903
+    Web->>Go: Requisição HTTP GET /buscar
+    
+    rect rgb(240, 248, 255)
+    Note over Go,Mock: Autenticação OAuth2 (Client Credentials)
+    Go->>Mock: POST /token (Client ID + Secret)
+    Mock-->>Go: Retorna Access Token JWT (Cacheado)
+    end
+    
+    rect rgb(255, 245, 238)
+    Note over Go,Mock: Busca de Laudos Segura
+    Go->>Mock: GET /laudos/12345678903 <br/>(Header: Bearer Token)
+    Mock-->>Go: Retorna JSON com lista de laudos (ou 404)
+    end
+    
+    Go-->>Web: Renderiza Template HTML com resultados
+    Web-->>User: Exibe Interface Limpa com Exames
+    
+    User->>Web: Clica na linha de um Laudo
+    Web->>Go: GET /laudo?cpf=X&accession=Y (Nova Aba)
+    Go->>Mock: Requisita dados do laudo específico
+    Mock-->>Go: Retorna payload com 'pdf_base64'
+    Go->>Go: Faz o Decode Base64 para binário nativo
+    Go-->>Web: Retorna documento 'application/pdf' inline
+    Web-->>User: Exibe o arquivo PDF em tela para impressão
+```
+
+### Componentes:
+1. **API Mock (`/api-mock`)** (FastAPI): Simula o backend conectando com o BD e gerando tokens.
+2. **Consumidor em Go (`/consumidor-go`)**: Interface de Terminal Rica (TUI) e Servidor Web veloz para consumo e renderização dos laudos.
+3. **Consumidor em Python (`/consumidor-python`)**: Alternativa web demonstrando a mesma funcionalidade.
 
 ---
 
@@ -50,34 +96,26 @@ Você pode rodar no terminal conectado (para ver os logs em tempo real) ou em ba
 
 ## 🚀 2. Passo a Passo: Consumidor Go (Terminal + Web)
 
-Este consumidor conta com uma interface no terminal guiada e autoconfigurável.
+### Como compilar para Produção (Cliente Final):
+Não envie o código fonte. Gere um arquivo binário único (plug-and-play):
+```bash
+# Para Mac (Apple Silicon)
+go build -o consumidor-itaigara
 
-### Configuração (Primeira Execução):
-1. Navegue para a pasta do consumidor:
-   ```bash
-   cd /Users/raunick/Downloads/projetos/backenditaigara/consumidor-go
-   ```
-2. Instale e baixe os pacotes da build inicial:
-   ```bash
-   go mod tidy
-   ```
-3. Execute o programa:
-   ```bash
-   go run .
-   ```
+# Para Windows (Estando no Mac)
+GOOS=windows GOARCH=amd64 go build -o consumidor-itaigara.exe
 
-### Fluxo de Setup Interativo (TUI):
-Na primeira execução, ele notará a falta do `config.json` e abrirá a tela preta com o cabeçalho azul perguntando por suas configurações mestre (Credenciais Mock):
-- **Base URL:** Escreva `http://localhost:8000`
-- **Client ID:** Copie e cole a chave disponibilizada (`A8iSuj9dX0a...`)
-- **Client Secret:** Copie e cole o segredo disponilizado (`a^zcBXi<...`)
+# Para Linux
+GOOS=linux GOARCH=amd64 go build -o consumidor-itaigara-linux
+```
+**Para entregar ao cliente, envie apenas 2 coisas:** O Binário gerado e a pasta `templates/`.
 
-Pressione `Enter` para salvar (ou mude entre os campos usando as `"Setas Pra Cima"` / `"Setas Pra Baixo"`).
-> O arquivo `config.json` será salvo automaticamente. Nas próximas inicializações, esse passo será ocultado, caindo direto na pesquisa de CPF.
+### Fluxo de Setup Interativo na primeira Execução:
+Quando o cliente rodar o programa, se ele não enviar um arquivo `config.json` previamente preenchido, o terminal de fundo azul fará as perguntas iniciais:
+- **Base URL:** `http://localhost:8000` (ou o IP de produção do Itaigara)
+- **Client ID & Secret:** Chaves OAuth2.
 
-### Uso do Frontend WEB:
-Se não quiser usar a TUI do terminal, deixe ele aberto com a mensagem `Servidor Web rodando em http://localhost:8080` e acesso do seu navegador:
-- [Página de Busca (Go)](http://localhost:8080/buscar)
+Após salvar, o sistema exibirá uma TUI para buscas rápidas via terminal e inicializará o servidor Web na porta *8080*. O cliente poderá acessar navegando para [http://localhost:8080/buscar](http://localhost:8080/buscar).
 
 ---
 
@@ -85,7 +123,7 @@ Se não quiser usar a TUI do terminal, deixe ele aberto com a mensagem `Servidor
 
 Serviço concorrente (roda sob porta `8081`) e pode ser estendido facilmente pelo seu analista Python.
 
-### Configuração:
+### Configuração e Execução:
 1. Abra o respectivo diretório:
    ```bash
    cd /Users/raunick/Downloads/projetos/backenditaigara/consumidor-python
@@ -96,25 +134,15 @@ Serviço concorrente (roda sob porta `8081`) e pode ser estendido facilmente pel
    source .venv/bin/activate
    pip install -r requirements.txt
    ```
-
-### Uso do Terminal Integrado (Scripting):
-Para usar os dados por trás das cortinas no console de saída do Python, rode o client isolado:
-```bash
-python3 client.py
-```
-
-### Uso do Frontend WEB (Jinja2):
-Para testar os layouts de laudos do Python no seu próprio navegador:
-*   **Tempo Real:** `uvicorn web:app --port 8081 --reload`
-*   **Acesso Web:** Navegue para [http://localhost:8081/buscar](http://localhost:8081/buscar)
+3. Rode o servidor Web (Jinja2):
+   ```bash
+   uvicorn web:app --port 8081 --reload
+   ```
 
 ---
 
 ## 🧪 Postman Collection (Testes Frios)
-Na pasta `/api-mock/`, você tem o arquivo de Collection do Postman `Itaigara_API_Mock.postman_collection.json`. 
+Na pasta `/api-mock/`, você tem o arquivo `Itaigara_API_Mock.postman_collection.json`. 
 
 - Abra o Postman > Clique em **Import** (File > Import) e arraste o arquivo para dentro.
 - Ele instalará a collection **Itaigara - Laudos API Mock** contendo as rotas exatas, passando por `POST /token` e enviando os Bearer Tokens automaticamente para buscar o laudo final, simulando a inteligência nativa dos consumidores criados.
-
----
-> ⚕️ **Itaigara Clinic System - Engineering Labs** - 2026
